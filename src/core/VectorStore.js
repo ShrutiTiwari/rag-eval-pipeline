@@ -1,16 +1,18 @@
-const OpenAI = require('openai');
-
 /**
- * VectorStore - Handles document embeddings and similarity search
- * for the RAG chatbot system using OpenAI embeddings
+ * VectorStore - Handles document embeddings and similarity search.
+ * The embedding model is supplied via an EmbeddingProvider; swap it with
+ * a one-line config change (EMBEDDING_PROVIDER=openai) rather than touching this file.
  */
+const { createEmbeddingProvider } = require('../providers/EmbeddingProvider');
+
 class VectorStore {
-  constructor(apiKey = null) {
-    this.openai = new OpenAI({
-      apiKey: apiKey || process.env.OPENAI_API_KEY
-    });
-    this.embeddings = []; // Store embeddings with metadata
-    this.embeddingModel = 'text-embedding-3-small'; // Cost-effective embedding model
+  /**
+   * @param {import('../providers/EmbeddingProvider').EmbeddingProvider} [embeddingProvider]
+   *   Optional provider instance. Defaults to createEmbeddingProvider().
+   */
+  constructor(embeddingProvider = null) {
+    this.embeddings = [];
+    this.embeddingProvider = embeddingProvider || createEmbeddingProvider();
   }
 
   /**
@@ -24,52 +26,26 @@ class VectorStore {
       throw new Error('Chunks must be a non-empty array');
     }
 
-    console.log(`🔮 Generating embeddings for ${chunks.length} chunks using ${this.embeddingModel}...`);
-    const embeddings = [];
+    console.log(`Generating embeddings for ${chunks.length} chunks...`);
 
-    // Process chunks in batches to avoid rate limits
-    const batchSize = 100; // OpenAI allows up to 2048 inputs per request
-    const batches = this.createBatches(chunks, batchSize);
+    const texts = chunks.map(chunk => chunk.content);
+    const vectors = await this.embeddingProvider.embed(texts);
 
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i];
-      console.log(`📦 Processing batch ${i + 1}/${batches.length} (${batch.length} chunks)`);
+    const embeddings = chunks.map((chunk, i) => ({
+      id: `${metadata.filename || 'doc'}_chunk_${chunk.index || i}`,
+      content: chunk.content,
+      embedding: vectors[i],
+      metadata: {
+        ...metadata,
+        chunkIndex: chunk.index || i,
+        startChar: chunk.startChar,
+        endChar: chunk.endChar,
+        length: chunk.length || chunk.content.length
+      },
+      createdAt: new Date().toISOString()
+    }));
 
-      try {
-        const response = await this.openai.embeddings.create({
-          model: this.embeddingModel,
-          input: batch.map(chunk => chunk.content)
-        });
-
-        // Combine embeddings with chunk metadata
-        response.data.forEach((embeddingData, index) => {
-          const chunk = batch[index];
-          embeddings.push({
-            id: `${metadata.filename || 'doc'}_chunk_${chunk.index || index}`,
-            content: chunk.content,
-            embedding: embeddingData.embedding,
-            metadata: {
-              ...metadata,
-              chunkIndex: chunk.index || index,
-              startChar: chunk.startChar,
-              endChar: chunk.endChar,
-              length: chunk.length || chunk.content.length
-            },
-            createdAt: new Date().toISOString()
-          });
-        });
-
-        // Add delay between batches to respect rate limits
-        if (i < batches.length - 1) {
-          await this.delay(100); // 100ms delay between batches
-        }
-      } catch (error) {
-        console.error(`❌ Error processing batch ${i + 1}:`, error.message);
-        throw new Error(`Failed to generate embeddings for batch ${i + 1}: ${error.message}`);
-      }
-    }
-
-    console.log(`✅ Generated ${embeddings.length} embeddings successfully`);
+    console.log(`Generated ${embeddings.length} embeddings successfully`);
     return embeddings;
   }
 
@@ -83,7 +59,7 @@ class VectorStore {
     }
 
     this.embeddings.push(...embeddings);
-    console.log(`📚 Added ${embeddings.length} embeddings to vector store (Total: ${this.embeddings.length})`);
+    console.log(`Added ${embeddings.length} embeddings to vector store (Total: ${this.embeddings.length})`);
   }
 
   /**
@@ -96,17 +72,7 @@ class VectorStore {
       throw new Error('Query must be a non-empty string');
     }
 
-    try {
-      const response = await this.openai.embeddings.create({
-        model: this.embeddingModel,
-        input: query.trim()
-      });
-
-      return response.data[0].embedding;
-    } catch (error) {
-      console.error('❌ Error generating query embedding:', error.message);
-      throw new Error(`Failed to generate query embedding: ${error.message}`);
-    }
+    return this.embeddingProvider.embedOne(query.trim());
   }
 
   /**
@@ -121,7 +87,7 @@ class VectorStore {
       throw new Error('No embeddings found in vector store');
     }
 
-    console.log(`🔍 Searching for: "${query}" (topK=${topK}, threshold=${threshold})`);
+    console.log(`Searching for: "${query}" (topK=${topK}, threshold=${threshold})`);
 
     // Generate query embedding
     const queryEmbedding = await this.generateQueryEmbedding(query);
@@ -138,7 +104,7 @@ class VectorStore {
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, topK);
 
-    console.log(`📊 Found ${filteredResults.length} results above threshold ${threshold}`);
+    console.log(`Found ${filteredResults.length} results above threshold ${threshold}`);
 
     return filteredResults.map(result => ({
       id: result.id,
@@ -203,7 +169,7 @@ class VectorStore {
       totalEmbeddings: this.embeddings.length,
       uniqueDocuments: documents.length,
       documents: documents,
-      model: this.embeddingModel,
+      embeddingProvider: this.embeddingProvider.constructor.name,
       avgEmbeddingLength: this.embeddings.length > 0 ?
         this.embeddings[0].embedding.length : 0
     };
@@ -214,7 +180,7 @@ class VectorStore {
    */
   clear() {
     this.embeddings = [];
-    console.log('🗑️  Vector store cleared');
+    console.log('Vector store cleared');
   }
 
   /**

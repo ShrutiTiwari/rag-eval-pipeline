@@ -1,21 +1,25 @@
-const OpenAI = require('openai');
 const DocumentLoader = require('./DocumentLoader');
 const VectorStore = require('./VectorStore');
 const RetrievalEvaluator = require('./RetrievalEvaluator');
 const TruLensClient = require('./TruLensClient');
+const { createLLMProvider } = require('../providers/LLMProvider');
 
 /**
  * ChatService - RAG pipeline orchestrator
- * Combines document retrieval with LLM generation for contextual answers
+ * Combines document retrieval with LLM generation for contextual answers.
+ * The LLM is supplied via an LLMProvider; swap it with a one-line config change
+ * (LLM_PROVIDER=claude) rather than touching this file.
  */
 class ChatService {
-  constructor(apiKey = null) {
-    this.openai = new OpenAI({
-      apiKey: apiKey || process.env.OPENAI_API_KEY
-    });
+  /**
+   * @param {import('../providers/LLMProvider').LLMProvider} [llmProvider]
+   *   Optional provider instance. Defaults to createLLMProvider().
+   */
+  constructor(llmProvider = null) {
+    this.llmProvider = llmProvider || createLLMProvider();
     this.vectorStore = null;
     this.documents = [];
-    this.chatModel = 'gpt-4o-mini'; // Cost-effective chat model
+    this.chatModel = this.llmProvider.model || 'gpt-4o-mini'; // for metadata/stats
     this.conversationHistory = [];
     this.maxContextLength = 8000; // Token limit for context
     this.maxHistoryMessages = 10; // Limit conversation history
@@ -81,6 +85,34 @@ class ChatService {
   }
 
   /**
+   * Initialize with pre-loaded document objects (skips file I/O).
+   * Use this when you already have documents from getCachedDocuments()
+   * and want to scope the vector store to a specific subset.
+   * @param {Array} documents - Array of document objects from DocumentLoader
+   * @param {Object} options
+   */
+  async initializeWithDocuments(documents, options = {}) {
+    const { chunkSize = 1000, chunkOverlap = 100 } = options;
+
+    if (!documents || documents.length === 0) {
+      throw new Error('No documents provided for ChatService initialization');
+    }
+
+    this.documents = documents;
+    this.vectorStore = new VectorStore();
+
+    for (const document of documents) {
+      console.log(`⚡ Processing: ${document.metadata.filename}`);
+      const chunks = await DocumentLoader.chunkDocument(document.content, chunkSize, chunkOverlap);
+      console.log(`   Chunks: ${chunks.length}`);
+      const embeddings = await this.vectorStore.generateEmbeddings(chunks, document.metadata);
+      this.vectorStore.addEmbeddings(embeddings);
+    }
+
+    this.evaluator = new RetrievalEvaluator(this.vectorStore);
+  }
+
+  /**
    * Generate a chat response using RAG pipeline
    * @param {string} userMessage - User's question or message
    * @param {Object} options - Configuration options
@@ -122,16 +154,7 @@ class ChatService {
       const messages = this.buildMessages(userMessage, context, includeHistory);
 
       // Step 4: Generate LLM response
-      const response = await this.openai.chat.completions.create({
-        model: this.chatModel,
-        messages: messages,
-        temperature: temperature,
-        max_tokens: maxTokens,
-        presence_penalty: 0.1,
-        frequency_penalty: 0.1
-      });
-
-      const assistantMessage = response.choices[0].message.content;
+      const assistantMessage = await this.llmProvider.chat(messages, { temperature, maxTokens });
 
       // Step 5: Update conversation history
       if (includeHistory) {
@@ -148,7 +171,7 @@ class ChatService {
           retrievedChunks: retrievalResults.length,
           model: this.chatModel,
           temperature: temperature,
-          tokensUsed: response.usage?.total_tokens || 0,
+          tokensUsed: 0, // token counts are provider-specific; override in subclass if needed
           processingTime: Date.now() - Date.now() // Will be calculated properly
         },
         conversationLength: this.conversationHistory.length

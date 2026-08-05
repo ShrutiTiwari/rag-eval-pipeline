@@ -16,9 +16,8 @@ let vectorStoreCache = null;
 let vectorCacheTimestamp = null;
 const VECTOR_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes (embeddings are expensive)
 
-// ChatService cache
-let chatServiceCache = null;
-let chatCacheTimestamp = null;
+// ChatService cache — keyed by filename so each doc gets its own initialized service
+const chatServiceCache = {};   // { [filename]: { service, timestamp } }
 const CHAT_CACHE_DURATION = 60 * 60 * 1000; // 1 hour (includes LLM setup)
 
 /**
@@ -148,7 +147,11 @@ router.get('/refresh', async (req, res) => {
  */
 router.get('/evaluate', async (req, res) => {
   try {
-    const chatService = await getCachedChatService();
+    const doc = req.query.doc;
+    if (!doc) {
+      return res.status(400).json({ success: false, error: 'doc query param required — e.g. /evaluate?doc=11-plus-syllabus.pdf' });
+    }
+    const chatService = await getCachedChatService(doc);
 
     console.log('📊 Running retrieval evaluation...');
 
@@ -757,12 +760,11 @@ async function getCachedVectorStore() {
     // Initialize vector store
     vectorStoreCache = new VectorStore();
 
-    // Process documents and generate embeddings (limit for demo)
-    for (const document of documents.slice(0, 2)) { // Only first 2 docs to save API costs
+    for (const document of documents) {
       console.log(`🔮 Processing embeddings for: ${document.metadata.filename}`);
 
       const chunks = await DocumentLoader.chunkDocument(document.content, 1000, 100);
-      const limitedChunks = chunks.slice(0, 5); // Only 5 chunks per doc for demo
+      const limitedChunks = chunks;
 
       const embeddings = await vectorStoreCache.generateEmbeddings(limitedChunks, document.metadata);
       vectorStoreCache.addEmbeddings(embeddings);
@@ -780,7 +782,7 @@ async function getCachedVectorStore() {
  */
 router.post('/vector-search', async (req, res) => {
   try {
-    const { query, topK = 3, threshold = 0.1 } = req.body;
+    const { query, doc, topK = 3, threshold = 0.1 } = req.body;
 
     if (!query || typeof query !== 'string' || query.trim().length === 0) {
       return res.status(400).json({
@@ -789,10 +791,18 @@ router.post('/vector-search', async (req, res) => {
       });
     }
 
-    console.log(`🔍 Vector search request: "${query}" (topK=${topK}, threshold=${threshold})`);
+    if (!doc) {
+      return res.status(400).json({
+        success: false,
+        error: 'doc (filename) is required — select a document from the dashboard first'
+      });
+    }
 
-    // Get vector store
-    const vectorStore = await getCachedVectorStore();
+    console.log(`🔍 Vector search [${doc}]: "${query}"`);
+
+    // Reuse the per-doc ChatService cache so we never embed the wrong docs
+    const chatService = await getCachedChatService(doc);
+    const vectorStore = chatService.vectorStore;
 
     // Perform search
     const results = await vectorStore.similaritySearch(query.trim(), topK, threshold);
@@ -838,6 +848,30 @@ router.post('/vector-search', async (req, res) => {
  * GET /api/rag-docs/vector-search/test - Get test interface
  */
 router.get('/vector-search/test', (req, res) => {
+  const doc = req.query.doc || '';
+
+  const exampleQueries = doc.includes('11-plus') ? [
+    { label: 'ISEB Pre-Test subjects',  query: 'What subjects are included in the ISEB Common Pre-Test?' },
+    { label: 'Maths paper duration',    query: 'How long is the mathematics paper and is a calculator allowed?' },
+    { label: 'Maths paper sections',    query: 'What are the three sections of the maths paper?' },
+    { label: 'Topics not tested',       query: 'What topics are not tested in the maths exam?' },
+    { label: 'Composition forms',       query: 'What writing forms are accepted in the composition paper?' },
+  ] : doc.includes('ABRSM') ? [
+    { label: 'Piano scales',            query: 'What are piano scales?' },
+    { label: 'How many grades',         query: 'How many grades are there?' },
+    { label: 'ABRSM requirements',      query: 'ABRSM requirements' },
+    { label: 'Practice techniques',     query: 'Practice techniques' },
+    { label: 'Musical theory',          query: 'Musical theory' },
+  ] : [
+    { label: 'ISEB Pre-Test subjects',  query: 'What subjects are included in the ISEB Common Pre-Test?' },
+    { label: 'Maths paper sections',    query: 'What are the three sections of the maths paper?' },
+    { label: 'Topics not tested',       query: 'What topics are not tested in the maths exam?' },
+  ];
+
+  const exampleChipsHtml = exampleQueries.map(e =>
+    `<span class="example-query" onclick="setQuery('${e.query}')">${e.label}</span>`
+  ).join('\n            ');
+
   const html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -978,11 +1012,11 @@ router.get('/vector-search/test', (req, res) => {
 </head>
 <body>
     <div class="container">
-        <h1>🔍 Vector Search Test Interface</h1>
+        <h1>🔍 Vector Search${doc ? ' — ' + doc : ''}</h1>
         <p>Test the RAG vector search functionality with real OpenAI embeddings</p>
 
         <div class="search-box">
-            <input type="text" id="searchQuery" placeholder="Enter your search query..." value="What are piano scales?">
+            <input type="text" id="searchQuery" placeholder="Enter your search query..." value="${exampleQueries[0].query}">
             <button onclick="performSearch()" id="searchBtn">Search</button>
         </div>
 
@@ -999,11 +1033,7 @@ router.get('/vector-search/test', (req, res) => {
 
         <div class="example-queries">
             <strong>Example queries:</strong><br>
-            <span class="example-query" onclick="setQuery('What are piano scales?')">What are piano scales?</span>
-            <span class="example-query" onclick="setQuery('How many grades are there?')">How many grades are there?</span>
-            <span class="example-query" onclick="setQuery('ABRSM requirements')">ABRSM requirements</span>
-            <span class="example-query" onclick="setQuery('practice techniques')">Practice techniques</span>
-            <span class="example-query" onclick="setQuery('musical theory')">Musical theory</span>
+            ${exampleChipsHtml}
         </div>
 
         <div id="results"></div>
@@ -1033,7 +1063,7 @@ router.get('/vector-search/test', (req, res) => {
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ query, topK, threshold })
+                    body: JSON.stringify({ query, topK, threshold, doc: new URLSearchParams(window.location.search).get('doc') })
                 });
 
                 const data = await response.json();
@@ -1115,30 +1145,35 @@ router.get('/vector-search/test', (req, res) => {
 });
 
 /**
- * Get cached ChatService or create/refresh if needed
+ * Get cached ChatService for a specific document, or create one if stale/missing.
+ * @param {string} filename - e.g. '11-plus-syllabus.pdf'
  */
-async function getCachedChatService() {
+async function getCachedChatService(filename) {
   const now = Date.now();
+  const cached = chatServiceCache[filename];
 
-  if (!chatServiceCache || !chatCacheTimestamp || (now - chatCacheTimestamp) > CHAT_CACHE_DURATION) {
-    console.log('🤖 Creating/refreshing ChatService cache...');
-
-    chatServiceCache = new ChatService();
-    const documentsPath = path.join(__dirname, '../../public/pdf-sources');
-
-    await chatServiceCache.initialize(documentsPath, {
-      maxDocuments: 2,
-      maxChunksPerDoc: 10,
-      chunkSize: 1000,
-      chunkOverlap: 100
-    });
-
-    chatCacheTimestamp = now;
-    const stats = chatServiceCache.getConversationStats();
-    console.log(`✅ ChatService cached with ${stats.vectorStoreStats.totalEmbeddings} embeddings`);
+  if (cached && (now - cached.timestamp) < CHAT_CACHE_DURATION) {
+    return cached.service;
   }
 
-  return chatServiceCache;
+  console.log(`🤖 Initializing ChatService for: ${filename}`);
+
+  const allDocuments = await getCachedDocuments();
+  const doc = allDocuments.find(d => d.metadata.filename === filename);
+  if (!doc) throw new Error(`Document not found: ${filename}`);
+
+  const service = new ChatService();
+  // initialize with the single matched document directly
+  await service.initializeWithDocuments([doc], {
+    chunkSize: 1000,
+    chunkOverlap: 100
+  });
+
+  chatServiceCache[filename] = { service, timestamp: now };
+  const stats = service.getConversationStats();
+  console.log(`✅ ChatService ready for ${filename} — ${stats.vectorStoreStats.totalEmbeddings} embeddings`);
+
+  return service;
 }
 
 /**
@@ -1148,6 +1183,7 @@ router.post('/chat', async (req, res) => {
   try {
     const {
       message,
+      doc,
       includeHistory = true,
       temperature = 0.7,
       topK = 3,
@@ -1161,10 +1197,17 @@ router.post('/chat', async (req, res) => {
       });
     }
 
-    console.log(`💬 Chat request: "${message}" (includeHistory=${includeHistory})`);
+    if (!doc) {
+      return res.status(400).json({
+        success: false,
+        error: 'doc (filename) is required — select a document from the dashboard first'
+      });
+    }
 
-    // Get chat service
-    const chatService = await getCachedChatService();
+    console.log(`💬 Chat request for [${doc}]: "${message}"`);
+
+    // Get chat service scoped to this document
+    const chatService = await getCachedChatService(doc);
 
     // Clear history if requested
     if (clearHistory) {
@@ -1209,6 +1252,35 @@ router.post('/chat', async (req, res) => {
  * GET /api/rag-docs/chat/test - Get chat test interface
  */
 router.get('/chat/test', (req, res) => {
+  const doc = req.query.doc || '';
+
+  const exampleMessages = doc.includes('11-plus') ? [
+    { label: 'ISEB Pre-Test subjects',   msg: 'What subjects are included in the ISEB Common Pre-Test?' },
+    { label: 'Maths paper format',       msg: 'How long is the mathematics paper and is a calculator allowed?' },
+    { label: 'Maths sections',           msg: 'What are the three sections of the maths paper?' },
+    { label: 'Topics not tested',        msg: 'What topics are not tested in the maths exam?' },
+    { label: 'Composition forms',        msg: 'What writing forms are accepted in the composition paper?' },
+  ] : doc.includes('ABRSM') ? [
+    { label: 'Piano scales',             msg: 'What are piano scales?' },
+    { label: 'How many grades',          msg: 'How many grades are there?' },
+    { label: 'Grade 1 practice',         msg: 'What should I practice for Grade 1?' },
+    { label: 'ABRSM requirements',       msg: 'Tell me about ABRSM requirements' },
+  ] : [
+    { label: 'ISEB Pre-Test subjects',   msg: 'What subjects are included in the ISEB Common Pre-Test?' },
+    { label: 'Maths sections',           msg: 'What are the three sections of the maths paper?' },
+    { label: 'Topics not tested',        msg: 'What topics are not tested in the maths exam?' },
+  ];
+
+  const exampleBtnsHtml = exampleMessages.map(e =>
+    `<button class="example-btn" onclick="setMessage('${e.msg}')">${e.label}</button>`
+  ).join('\n                ');
+
+  const welcomeHint = doc.includes('11-plus')
+    ? '💡 Try asking about the 11+ exam subjects, maths sections, or English paper format'
+    : doc.includes('ABRSM')
+    ? '💡 Try asking about piano scales, ABRSM requirements, or practice techniques'
+    : '💡 Ask a question about your selected document';
+
   const html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -1364,7 +1436,7 @@ router.get('/chat/test', (req, res) => {
 <body>
     <div class="container">
         <div class="chat-header">
-            <h1>🤖 RAG Chat Interface</h1>
+            <h1>🤖 RAG Chat${doc ? ' — ' + doc : ''}</h1>
             <p>Ask questions about your documents using AI</p>
         </div>
 
@@ -1374,7 +1446,7 @@ router.get('/chat/test', (req, res) => {
                     Hello! I'm ready to answer questions about your documents. What would you like to know?
                 </div>
                 <div class="message-meta">
-                    💡 Try asking about piano scales, ABRSM requirements, or practice techniques
+                    ${welcomeHint}
                 </div>
             </div>
         </div>
@@ -1382,10 +1454,7 @@ router.get('/chat/test', (req, res) => {
         <div class="chat-input">
             <div class="example-questions">
                 <strong>Quick examples:</strong><br>
-                <button class="example-btn" onclick="setMessage('What are piano scales?')">What are piano scales?</button>
-                <button class="example-btn" onclick="setMessage('How many grades are there?')">How many grades are there?</button>
-                <button class="example-btn" onclick="setMessage('What should I practice for Grade 1?')">What should I practice for Grade 1?</button>
-                <button class="example-btn" onclick="setMessage('Tell me about ABRSM requirements')">Tell me about ABRSM requirements</button>
+                ${exampleBtnsHtml}
             </div>
 
             <div class="input-group">
@@ -1437,6 +1506,7 @@ router.get('/chat/test', (req, res) => {
                     },
                     body: JSON.stringify({
                         message: message,
+                        doc: new URLSearchParams(window.location.search).get('doc'),
                         includeHistory: document.getElementById('includeHistory').checked,
                         temperature: parseFloat(document.getElementById('temperature').value),
                         topK: 3
