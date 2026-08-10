@@ -1,6 +1,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const pdf = require('pdf-parse');
+const { createChunkingStrategy } = require('../providers/ChunkingStrategy');
 
 /**
  * DocumentLoader - Handles loading and processing of PDF documents
@@ -124,54 +125,26 @@ class DocumentLoader {
   }
 
   /**
-   * Split document content into chunks for vector processing
+   * Split document content into chunks using the configured chunking strategy.
    * @param {string} content - Document content
-   * @param {number} chunkSize - Maximum chunk size in characters
-   * @param {number} overlap - Overlap between chunks in characters
+   * @param {number} chunkSize - Max chunk size (used by FixedSizeChunking)
+   * @param {number} overlap - Overlap size (used by FixedSizeChunking)
+   * @param {import('../providers/ChunkingStrategy').ChunkingStrategy} [strategy]
+   *   Optional strategy instance. Defaults to createChunkingStrategy() which
+   *   reads CHUNKING_STRATEGY env var ('fixed' or 'section').
    * @returns {Array<Object>} Array of chunk objects
    */
-  static async chunkDocument(content, chunkSize = 1000, overlap = 100) {
+  static async chunkDocument(content, chunkSize = 1000, overlap = 100, strategy = null) {
     if (!content || typeof content !== 'string') {
       return [];
     }
 
-    const chunks = [];
-    let startIndex = 0;
+    const chunkingStrategy = strategy || createChunkingStrategy(
+      process.env.CHUNKING_STRATEGY || 'fixed',
+      { chunkSize, overlap, maxSectionSize: chunkSize, }
+    );
 
-    while (startIndex < content.length) {
-      const endIndex = Math.min(startIndex + chunkSize, content.length);
-      let chunkText = content.slice(startIndex, endIndex);
-
-      // Try to break at sentence boundaries if not at the end
-      if (endIndex < content.length) {
-        const lastPeriod = chunkText.lastIndexOf('.');
-        const lastNewline = chunkText.lastIndexOf('\n');
-        const breakPoint = Math.max(lastPeriod, lastNewline);
-
-        if (breakPoint > startIndex + (chunkSize * 0.7)) {
-          chunkText = content.slice(startIndex, startIndex + breakPoint + 1);
-        }
-      }
-
-      chunks.push({
-        content: chunkText.trim(),
-        index: chunks.length,
-        startChar: startIndex,
-        endChar: startIndex + chunkText.length,
-        length: chunkText.trim().length
-      });
-
-      // Move to next chunk with overlap
-      startIndex = startIndex + chunkText.length - overlap;
-
-      // Ensure we make progress even with small chunks
-      if (startIndex <= chunks[chunks.length - 1].startChar) {
-        startIndex = chunks[chunks.length - 1].endChar;
-      }
-    }
-
-    console.log(`📝 Document chunked into ${chunks.length} pieces`);
-    return chunks;
+    return chunkingStrategy.chunk(content);
   }
 
   /**

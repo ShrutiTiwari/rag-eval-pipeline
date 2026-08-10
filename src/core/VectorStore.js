@@ -40,7 +40,9 @@ class VectorStore {
         chunkIndex: chunk.index || i,
         startChar: chunk.startChar,
         endChar: chunk.endChar,
-        length: chunk.length || chunk.content.length
+        length: chunk.length || chunk.content.length,
+        section: chunk.section || null,
+        strategy: chunk.strategy || null
       },
       createdAt: new Date().toISOString()
     }));

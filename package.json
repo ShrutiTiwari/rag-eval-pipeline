@@ -11,7 +11,8 @@
     "test:embedding": "node --test test/11-plus/02-embedding.test.js",
     "test:vector": "node --test test/11-plus/03-vector-store.test.js",
     "test:chat": "node --test test/11-plus/04-chat-service.test.js",
-    "test:evaluator": "node --test test/11-plus/05-evaluator.test.js"
+    "test:evaluator": "node --test test/11-plus/05-evaluator.test.js",
+    "test:chunking": "node --test test/11-plus/06-chunking-strategy.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

@@ -92,7 +92,7 @@ class ChatService {
    * @param {Object} options
    */
   async initializeWithDocuments(documents, options = {}) {
-    const { chunkSize = 1000, chunkOverlap = 100 } = options;
+    const { chunkSize = 1000, chunkOverlap = 100, chunkingStrategy = null } = options;
 
     if (!documents || documents.length === 0) {
       throw new Error('No documents provided for ChatService initialization');
@@ -103,7 +103,7 @@ class ChatService {
 
     for (const document of documents) {
       console.log(`⚡ Processing: ${document.metadata.filename}`);
-      const chunks = await DocumentLoader.chunkDocument(document.content, chunkSize, chunkOverlap);
+      const chunks = await DocumentLoader.chunkDocument(document.content, chunkSize, chunkOverlap, chunkingStrategy);
       console.log(`   Chunks: ${chunks.length}`);
       const embeddings = await this.vectorStore.generateEmbeddings(chunks, document.metadata);
       this.vectorStore.addEmbeddings(embeddings);

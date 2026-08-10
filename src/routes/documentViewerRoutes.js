@@ -2,7 +2,24 @@ const express = require('express');
 const DocumentLoader = require('../core/DocumentLoader');
 const VectorStore = require('../core/VectorStore');
 const ChatService = require('../core/ChatService');
+const { createChunkingStrategy } = require('../providers/ChunkingStrategy');
 const path = require('path');
+
+// Per-document chunking strategy config.
+// ABRSM syllabus has repeating technical headers (PIANO, ARPEGGIOS) that don't
+// map to meaningful sections — fixed-size chunking preserves grade content better.
+// 11+ syllabus has clear subject headings (MATHEMATICS, ENGLISH) — section-aware
+// keeps those isolated, improving retrieval quality.
+const DOC_CHUNKING_STRATEGY = {
+  'ABRSM_Piano_2025_2026_syllabus.pdf': 'fixed',
+  '11-plus-syllabus.pdf':               'section',
+};
+
+function getChunkingStrategyForDoc(filename) {
+  const type = DOC_CHUNKING_STRATEGY[filename] || process.env.CHUNKING_STRATEGY || 'fixed';
+  console.log(`📐 Chunking strategy for ${filename}: ${type}`);
+  return createChunkingStrategy(type);
+}
 
 const router = express.Router();
 
@@ -1163,10 +1180,10 @@ async function getCachedChatService(filename) {
   if (!doc) throw new Error(`Document not found: ${filename}`);
 
   const service = new ChatService();
-  // initialize with the single matched document directly
   await service.initializeWithDocuments([doc], {
     chunkSize: 1000,
-    chunkOverlap: 100
+    chunkOverlap: 100,
+    chunkingStrategy: getChunkingStrategyForDoc(filename)
   });
 
   chatServiceCache[filename] = { service, timestamp: now };
@@ -1536,6 +1553,23 @@ router.get('/chat/test', (req, res) => {
             }
         }
 
+        function scoreColor(score) {
+            if (score >= 0.75) return '#10b981'; // green
+            if (score >= 0.5)  return '#f59e0b'; // amber
+            return '#ef4444';                     // red
+        }
+
+        function scoreBar(score) {
+            const pct = Math.round(score * 100);
+            const color = scoreColor(score);
+            return \`<div style="display:flex;align-items:center;gap:6px;">
+                <div style="flex:1;background:#e5e7eb;border-radius:4px;height:6px;">
+                    <div style="width:\${pct}%;background:\${color};height:6px;border-radius:4px;"></div>
+                </div>
+                <span style="font-size:0.8em;color:\${color};font-weight:600;min-width:32px;">\${pct}%</span>
+            </div>\`;
+        }
+
         function addMessage(role, content, isLoading = false, metadata = {}) {
             const messagesDiv = document.getElementById('chatMessages');
             const messageDiv = document.createElement('div');
@@ -1553,27 +1587,128 @@ router.get('/chat/test', (req, res) => {
 
             messageHTML += \`</div>\`;
 
-            // Add metadata for assistant messages
             if (role === 'assistant' && !isLoading && metadata.sources) {
-                const processingTime = metadata.metadata?.processingTime || 0;
-                const tokensUsed = metadata.metadata?.tokensUsed || 0;
+                const sources   = metadata.sources || [];
+                const meta      = metadata.metadata || {};
+                const procTime  = meta.processingTime || 0;
+                const chunks    = sources.length;
+                const topScore  = chunks > 0 ? sources[0].similarity : 0;
+                const avgScore  = chunks > 0
+                    ? sources.reduce((s, r) => s + r.similarity, 0) / chunks
+                    : 0;
 
-                messageHTML += \`<div class="message-meta">\`;
-                messageHTML += \`⚡ \${processingTime}ms • 🪙 \${tokensUsed} tokens • 📚 \${metadata.sources.length} sources\`;
-                messageHTML += \`</div>\`;
+                // ── Retrieval metrics computed from similarity scores ────────
+                // Threshold for "relevant": similarity >= 0.5
+                const RELEVANT_THRESHOLD = 0.5;
+                const relevantChunks = sources.filter(s => s.similarity >= RELEVANT_THRESHOLD);
 
-                if (metadata.sources.length > 0) {
-                    messageHTML += \`<div class="sources"><strong>Sources:</strong>\`;
-                    metadata.sources.forEach((source, index) => {
-                        messageHTML += \`
-                            <div class="source-item">
-                                \${index + 1}. \${source.filename} (chunk \${source.chunkIndex}) - \${(source.similarity * 100).toFixed(1)}% match
-                                <br><em>"\${source.preview.substring(0, 80)}..."</em>
-                            </div>
-                        \`;
-                    });
-                    messageHTML += \`</div>\`;
+                // Precision@K: fraction of retrieved chunks above threshold
+                const precisionAtK = chunks > 0 ? relevantChunks.length / chunks : 0;
+
+                // MRR: 1 / rank of first chunk above threshold (rank is 1-based)
+                let mrr = 0;
+                for (let i = 0; i < sources.length; i++) {
+                    if (sources[i].similarity >= RELEVANT_THRESHOLD) { mrr = 1 / (i + 1); break; }
                 }
+
+                // NDCG@K: normalised discounted cumulative gain using similarity as relevance
+                // relevance score = 1 if >= threshold, else 0
+                let dcg = 0;
+                for (let i = 0; i < sources.length; i++) {
+                    const rel = sources[i].similarity >= RELEVANT_THRESHOLD ? 1 : 0;
+                    dcg += rel / Math.log2(i + 2); // log2(rank+1), rank is 1-based so i+2
+                }
+                // Ideal DCG: all relevant chunks ranked first
+                let idcg = 0;
+                for (let i = 0; i < relevantChunks.length; i++) {
+                    idcg += 1 / Math.log2(i + 2);
+                }
+                const ndcg = idcg > 0 ? dcg / idcg : (chunks > 0 && relevantChunks.length === 0 ? 0 : 1);
+
+                function metricBadge(label, value) {
+                    const pct = Math.round(value * 100);
+                    const color = scoreColor(value);
+                    return \`<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:6px 10px;text-align:center;">
+                        <div style="font-size:1.1em;font-weight:700;color:\${color};">\${pct}%</div>
+                        <div style="font-size:0.8em;color:#6b7280;margin-top:1px;">\${label}</div>
+                    </div>\`;
+                }
+
+                // ── Pipeline scorecard ──────────────────────────────────────
+                messageHTML += \`
+                <div style="margin-top:12px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;font-size:0.85em;">
+                    <div style="background:#f8fafc;padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;color:#374151;display:flex;justify-content:space-between;">
+                        <span>📊 Pipeline Scorecard</span>
+                        <span style="color:#6b7280;font-weight:400;">⚡ \${procTime}ms</span>
+                    </div>
+                    <div style="padding:10px 12px;">
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+                            <div>
+                                <div style="color:#6b7280;margin-bottom:3px;">Top similarity</div>
+                                \${scoreBar(topScore)}
+                            </div>
+                            <div>
+                                <div style="color:#6b7280;margin-bottom:3px;">Avg similarity</div>
+                                \${scoreBar(avgScore)}
+                            </div>
+                        </div>
+                        <div style="border-top:1px solid #f3f4f6;padding-top:8px;margin-bottom:2px;">
+                            <div style="color:#6b7280;font-size:0.85em;margin-bottom:6px;">Retrieval metrics <span style="font-weight:400;color:#9ca3af;">(threshold ≥ 50% similarity)</span></div>
+                            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">
+                                <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:6px 10px;text-align:center;">
+                                    <div style="font-size:1.1em;font-weight:700;color:#1f2937;">\${chunks}</div>
+                                    <div style="font-size:0.8em;color:#6b7280;margin-top:1px;">Chunks</div>
+                                </div>
+                                \${metricBadge('Precision@K', precisionAtK)}
+                                \${metricBadge('MRR', mrr)}
+                                \${metricBadge('NDCG', ndcg)}
+                            </div>
+                            <details style="margin-top:8px;">
+                                <summary style="cursor:pointer;font-size:0.8em;color:#9ca3af;user-select:none;">What do these mean?</summary>
+                                <div style="margin-top:6px;background:#f8fafc;border-radius:6px;padding:8px 10px;font-size:0.8em;color:#4b5563;line-height:1.6;">
+                                    <div style="margin-bottom:4px;"><strong style="color:#374151;">Precision@K</strong> — of the \${chunks} chunks retrieved, how many are actually relevant (≥50% similarity). <em>\${relevantChunks.length} of \${chunks} = \${Math.round(precisionAtK*100)}%.</em> Assumes similarity ≥ 50% is a proxy for relevance — no ground-truth labels used.</div>
+                                    <div style="margin-bottom:4px;"><strong style="color:#374151;">MRR</strong> — Mean Reciprocal Rank. Was the first relevant chunk ranked #1? Score = 1/rank of first relevant chunk. 100% = top result is relevant, 50% = relevant chunk is at rank 2. Same relevance assumption as above.</div>
+                                    <div style="margin-bottom:4px;"><strong style="color:#374151;">NDCG</strong> — Normalised Discounted Cumulative Gain. Rewards putting the most relevant chunks highest. Compares actual ranking to an ideal ranking where all relevant chunks come first. 100% = perfect ordering.</div>
+                                    <div style="color:#9ca3af;font-size:0.9em;margin-top:4px;">⚠ These are approximations — without labelled ground truth, "relevant" is defined as cosine similarity ≥ 0.5 using the local all-MiniLM-L6-v2 model (384-dim). For exact Precision/Recall, see the Evaluate page.</div>
+                                </div>
+                            </details>
+                        </div>
+                        <div style="border-top:1px solid #f3f4f6;padding-top:8px;margin-top:8px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                            <div>
+                                <div style="color:#6b7280;margin-bottom:3px;">Groundedness</div>
+                                <div style="color:#9ca3af;font-style:italic;font-size:0.9em;">TruLens pending</div>
+                            </div>
+                            <div>
+                                <div style="color:#6b7280;margin-bottom:3px;">Answer relevance</div>
+                                <div style="color:#9ca3af;font-style:italic;font-size:0.9em;">TruLens pending</div>
+                            </div>
+                            <div>
+                                <div style="color:#6b7280;margin-bottom:3px;">Context relevance</div>
+                                <div style="color:#9ca3af;font-style:italic;font-size:0.9em;">TruLens pending</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    \${chunks > 0 ? \`
+                    <details style="border-top:1px solid #e5e7eb;">
+                        <summary style="padding:8px 12px;cursor:pointer;color:#374151;font-weight:600;background:#f8fafc;">
+                            📄 Retrieved chunks (\${chunks})
+                        </summary>
+                        <div style="padding:8px 12px;">
+                        \${sources.map((s, i) => \`
+                            <div style="margin:6px 0;padding:8px;background:#f9fafb;border-radius:6px;border-left:3px solid \${scoreColor(s.similarity)};">
+                                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                                    <span style="font-weight:600;">Chunk \${s.chunkIndex}</span>
+                                    <span style="color:\${scoreColor(s.similarity)};font-weight:600;">\${(s.similarity*100).toFixed(1)}% match</span>
+                                </div>
+                                \${scoreBar(s.similarity)}
+                                <div style="margin-top:6px;color:#4b5563;font-size:0.9em;font-style:italic;">"\${s.preview.substring(0,120)}..."</div>
+                            </div>
+                        \`).join('')}
+                        </div>
+                    </details>
+                    \` : ''}
+                </div>\`;
             }
 
             if (metadata.error) {
