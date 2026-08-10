@@ -1,14 +1,14 @@
-# RAG Eval Pipeline
+# rag-eval-pipeline
 
-Retrieval-Augmented Generation pipeline with swappable chunking, embedding and LLM providers — load any PDF, ask questions in natural language, and measure retrieval quality with inline Precision, Recall, MRR and NDCG scores.
+Retrieval-Augmented Generation pipeline with swappable chunking, embedding and LLM providers — ask questions in natural language over curated documents, and measure retrieval quality with inline Precision, Recall, MRR and NDCG scores.
 
-🔗 [Live Demo](https://rag-eval-pipeline.vercel.app) · [Parent Project](https://www.powerparent.co.uk)
+🔗 [Live Demo](https://rag-eval-pipeline.vercel.app) · [GitHub](https://github.com/ShrutiTiwari/rag-eval-pipeline) · [Parent Project](https://www.powerparent.co.uk)
 
 ---
 
 ## What it does
 
-Load any PDF and ask it questions in natural language. Currently ships with two documents:
+Ask questions in natural language over two curated documents:
 
 - **ABRSM Piano 2025–2026 syllabus** — *"What pieces are required for Grade 3 piano?"*
 - **St Paul's Juniors 11+ entrance syllabus** — *"What subjects are in the ISEB Common Pre-Test?"*
@@ -38,13 +38,13 @@ PDF Document
 DocumentLoader        — extracts text, cleans, preserves metadata (pages, size)
     │
     ▼
-Chunking              — splits into overlapping 1000-char chunks (100-char overlap)
+ChunkingStrategy      — Fixed, SectionAware, or GradeBoundary (swappable via env var)
     │
     ▼
 EmbeddingProvider     — generates vectors via local model or OpenAI (swappable)
     │
     ▼
-VectorStore           — cosine similarity search over in-memory embeddings
+VectorStore           — hybrid BM25 + cosine similarity search over in-memory embeddings
     │
     ▼
 ChatService           — retrieves top-K chunks, injects as context, calls LLM
@@ -59,16 +59,21 @@ Conversation history is maintained across turns so follow-up questions work natu
 
 ## Provider abstraction — swap models via env vars
 
-Embedding and LLM backends are abstracted behind provider interfaces. No code changes needed to switch:
+Embedding, LLM, and chunking backends are all abstracted behind provider interfaces. No code changes needed to switch:
 
 ```bash
 # Embeddings (default: local, free, no API key needed)
-EMBEDDING_PROVIDER=local    # Xenova/all-MiniLM-L6-v2 — runs entirely in Node.js
-EMBEDDING_PROVIDER=openai   # text-embedding-3-small — requires OPENAI_API_KEY
+EMBEDDING_PROVIDER=local        # Xenova/all-MiniLM-L6-v2 — runs entirely in Node.js
+EMBEDDING_PROVIDER=openai       # text-embedding-3-small — requires OPENAI_API_KEY
 
 # LLM chat (default: claude)
-LLM_PROVIDER=claude         # Claude Haiku — requires ANTHROPIC_API_KEY
-LLM_PROVIDER=openai         # gpt-4o-mini  — requires OPENAI_API_KEY
+LLM_PROVIDER=claude             # Claude Haiku — requires ANTHROPIC_API_KEY
+LLM_PROVIDER=openai             # gpt-4o-mini  — requires OPENAI_API_KEY
+
+# Chunking strategy (default: fixed)
+CHUNKING_STRATEGY=fixed         # overlapping fixed-size chunks (1000 chars, 100 overlap)
+CHUNKING_STRATEGY=sectionaware  # splits on headings and section boundaries
+CHUNKING_STRATEGY=gradeboundary # splits on grade/level boundaries (ABRSM, 11+ content)
 ```
 
 The default setup is **fully free at runtime**: local embeddings + Claude Haiku via your Anthropic key.
@@ -95,7 +100,7 @@ The default setup is **fully free at runtime**: local embeddings + Claude Haiku 
 
 ## Pipeline tests
 
-98 unit tests across 5 files, all scoped to the 11+ document. Uses Node's built-in `node:test` — no test framework needed.
+133 unit tests across 6 files, all scoped to the 11+ document. Uses Node's built-in `node:test` — no test framework needed.
 
 ```
 npm run test:loader      # 27 tests — DocumentLoader: load, cleanText, chunkDocument
@@ -103,7 +108,8 @@ npm run test:embedding   # 16 tests — EmbeddingProvider: dimensions, normalisa
 npm run test:vector      # 17 tests — VectorStore: search, threshold, content relevance
 npm run test:chat        # 20 tests — ChatService: init, context assembly, history, fallback + smoke test
 npm run test:evaluator   # 18 tests — ElevenPlusEvaluator: query structure, metrics, recall by difficulty
-npm test                 # all 98
+npm run test:chunking    # 35 tests — ChunkingStrategy: Fixed, SectionAware, GradeBoundary comparison
+npm test                 # all 133
 ```
 
 Tests use the local embedding model (no API key needed) except the smoke test in `04-chat-service` which calls Claude.
@@ -116,7 +122,9 @@ Tests use the local embedding model (no API key needed) except the smoke test in
 
 **Per-document scoping** — the vector store is initialised per selected document. Clicking "Chat" on the 11+ card never embeds or searches the ABRSM doc, and vice versa. Each doc gets its own cached `ChatService` instance (1-hour TTL).
 
-**Chunking with overlap** — 100-character overlap prevents answers from being split across a chunk boundary.
+**Three chunking strategies** — `Fixed` uses overlapping 1000-char chunks (100-char overlap). `SectionAware` splits on headings and structural boundaries to keep sections intact. `GradeBoundary` splits on grade/level markers — purpose-built for ABRSM and 11+ content. Swap via `CHUNKING_STRATEGY` env var; the `/compare` endpoint lets you A/B test strategies against the same query set.
+
+**Hybrid search** — `VectorStore` combines cosine similarity (semantic) with BM25 (keyword) using a weighted score. This improves recall for exact-term queries that pure semantic search can miss.
 
 **In-memory vector store** — no external vector database. Simpler and fast for single-document use. Embeddings are regenerated on cold start; caching mitigates cost in practice.
 
@@ -127,24 +135,25 @@ Tests use the local embedding model (no API key needed) except the smoke test in
 ## Project structure
 
 ```
-rag-abrsm-exam/
+rag-eval-pipeline/
 ├── server.js                        # Express entry point (~30 lines)
 ├── public/
 │   ├── index.html                   # document dashboard UI
 │   └── pdf-sources/
-│       ├── ABRSM_Piano_2025_2026_syllabus.pdf
+│       ├── piano-syllabus.pdf
 │       └── 11-plus-syllabus.pdf
 ├── src/
 │   ├── core/
 │   │   ├── DocumentLoader.js        # PDF loading, cleaning, chunking
-│   │   ├── VectorStore.js           # embeddings + cosine similarity search
+│   │   ├── VectorStore.js           # embeddings + hybrid BM25/cosine search
 │   │   ├── ChatService.js           # RAG orchestration + conversation history
 │   │   ├── RetrievalEvaluator.js    # generic Precision/Recall/F1/MRR/NDCG
 │   │   ├── ElevenPlusEvaluator.js   # 11+ specific evaluator with content queries
 │   │   └── TruLensClient.js         # interface to Python evaluation service
 │   ├── providers/
 │   │   ├── EmbeddingProvider.js     # Local + OpenAI embedding backends
-│   │   └── LLMProvider.js           # Claude + OpenAI LLM backends
+│   │   ├── LLMProvider.js           # Claude + OpenAI LLM backends
+│   │   └── ChunkingStrategy.js      # Fixed, SectionAware, GradeBoundary strategies
 │   └── routes/
 │       └── documentViewerRoutes.js  # all API endpoints + HTML UIs
 └── test/
@@ -153,7 +162,8 @@ rag-abrsm-exam/
         ├── 02-embedding.test.js
         ├── 03-vector-store.test.js
         ├── 04-chat-service.test.js
-        └── 05-evaluator.test.js
+        ├── 05-evaluator.test.js
+        └── 06-chunking-strategy.test.js
 ```
 
 ---
@@ -178,17 +188,25 @@ rag-abrsm-exam/
 ## Running locally
 
 ```bash
-git clone https://github.com/ShrutiTiwari/rag-abrsm-exam
-cd rag-abrsm-exam
+git clone https://github.com/ShrutiTiwari/rag-eval-pipeline
+cd rag-eval-pipeline
 npm install
 cp .env.example .env   # add ANTHROPIC_API_KEY (Claude) — no OpenAI key needed by default
-npm run dev            # http://localhost:3000
+npm run dev            # http://localhost:3001
 ```
 
 On first request to chat or search, the local embedding model downloads (~25MB) and initialises. Subsequent requests are fast.
 
 ```bash
-npm test               # run all 98 pipeline tests
+# Optional: override defaults via .env
+CHUNKING_STRATEGY=gradeboundary   # fixed (default) | sectionaware | gradeboundary
+EMBEDDING_PROVIDER=local          # local (default) | openai
+LLM_PROVIDER=claude               # claude (default) | openai
+```
+
+```bash
+npm test                  # run all 133 pipeline tests
+npm run test:chunking     # chunking strategy comparison tests only
 ```
 
 ---

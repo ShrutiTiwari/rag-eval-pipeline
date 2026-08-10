@@ -20,7 +20,7 @@ app.get('/', (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`🚀 rag-abrsm-exam running at http://localhost:${port}`);
+  console.log(`🚀 rag-eval-pipeline running at http://localhost:${port}`);
   console.log(`📄 Dashboard: http://localhost:${port}/`);
   console.log(`💬 Chat:      http://localhost:${port}/api/rag-docs/chat/test`);
   console.log(`🔍 Search:    http://localhost:${port}/api/rag-docs/vector-search/test`);
