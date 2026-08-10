@@ -76,7 +76,7 @@ CHUNKING_STRATEGY=sectionaware  # splits on headings and section boundaries
 CHUNKING_STRATEGY=gradeboundary # splits on grade/level boundaries (ABRSM, 11+ content)
 ```
 
-The default setup is **fully free at runtime**: local embeddings + Claude Haiku via your Anthropic key.
+The default embedding pipeline runs locally with no embedding API cost; answer generation uses Claude or OpenAI via the configured provider.
 
 ---
 
