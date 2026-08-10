@@ -134,8 +134,8 @@ class ChatService {
     console.log(`💬 Processing chat request: "${userMessage}"`);
 
     try {
-      // Step 1: Retrieve relevant context
-      const retrievalResults = await this.vectorStore.similaritySearch(
+      // Step 1: Retrieve relevant context using hybrid BM25 + cosine search
+      const retrievalResults = await this.vectorStore.hybridSearch(
         userMessage,
         topK,
         similarityThreshold
@@ -282,6 +282,9 @@ ${context}`
       filename: result.metadata.filename,
       chunkIndex: result.metadata.chunkIndex,
       similarity: Math.round(result.similarity * 100) / 100,
+      cosineScore: result.cosineScore !== undefined ? Math.round(result.cosineScore * 100) / 100 : undefined,
+      bm25Score: result.bm25Score,
+      section: result.metadata.section || null,
       preview: result.content.substring(0, 150) + '...',
       position: {
         startChar: result.metadata.startChar,

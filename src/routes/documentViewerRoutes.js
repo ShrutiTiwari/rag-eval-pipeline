@@ -11,8 +11,8 @@ const path = require('path');
 // 11+ syllabus has clear subject headings (MATHEMATICS, ENGLISH) — section-aware
 // keeps those isolated, improving retrieval quality.
 const DOC_CHUNKING_STRATEGY = {
-  'ABRSM_Piano_2025_2026_syllabus.pdf': 'fixed',
-  '11-plus-syllabus.pdf':               'section',
+  'ABRSM_Piano_2025_2026_syllabus.pdf': 'grade',   // splits on GRADE N boundaries, prepends label to every chunk
+  '11-plus-syllabus.pdf':               'section', // splits on subject headings (MATHEMATICS, ENGLISH etc.)
 };
 
 function getChunkingStrategyForDoc(filename) {
@@ -36,6 +36,10 @@ const VECTOR_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes (embeddings are expe
 // ChatService cache — keyed by filename so each doc gets its own initialized service
 const chatServiceCache = {};   // { [filename]: { service, timestamp } }
 const CHAT_CACHE_DURATION = 60 * 60 * 1000; // 1 hour (includes LLM setup)
+
+// Retrieval defaults — single source of truth for topK across chat and vector-search routes
+const DEFAULT_CHAT_TOP_K   = 6; // broader: covers pieces + scales + aural for "what to practice" queries
+const DEFAULT_SEARCH_TOP_K = 3; // narrower: vector-search UI is for inspection, not full context assembly
 
 /**
  * Get cached documents or reload if cache is stale
@@ -799,7 +803,7 @@ async function getCachedVectorStore() {
  */
 router.post('/vector-search', async (req, res) => {
   try {
-    const { query, doc, topK = 3, threshold = 0.1 } = req.body;
+    const { query, doc, topK = DEFAULT_SEARCH_TOP_K, threshold = 0.1 } = req.body;
 
     if (!query || typeof query !== 'string' || query.trim().length === 0) {
       return res.status(400).json({
@@ -1040,7 +1044,7 @@ router.get('/vector-search/test', (req, res) => {
         <div class="controls">
             <div class="control-group">
                 <label>Top K:</label>
-                <input type="number" id="topK" value="3" min="1" max="10">
+                <input type="number" id="topK" value="${DEFAULT_SEARCH_TOP_K}" min="1" max="10">
             </div>
             <div class="control-group">
                 <label>Threshold:</label>
@@ -1203,7 +1207,7 @@ router.post('/chat', async (req, res) => {
       doc,
       includeHistory = true,
       temperature = 0.7,
-      topK = 3,
+      topK = DEFAULT_CHAT_TOP_K,
       clearHistory = false
     } = req.body;
 
@@ -1264,6 +1268,53 @@ router.post('/chat', async (req, res) => {
     });
   }
 });
+
+// renderMarkdown is defined as a plain string so it can be injected into the HTML
+// template literal without backslash-escaping issues. Regex literals and \n inside
+// the function are literal source code characters — not interpreted by Node.js.
+const renderMarkdownFn = `
+function renderMarkdown(text) {
+  if (!text) return '';
+  var escHtml = function(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  };
+  var lines = text.split('\\n');
+  var out = [];
+  var i = 0;
+  while (i < lines.length) {
+    var line = lines[i];
+    if (/^### /.test(line)) { out.push('<h3>' + escHtml(line.slice(4)) + '</h3>'); i++; continue; }
+    if (/^## /.test(line))  { out.push('<h2>' + escHtml(line.slice(3)) + '</h2>'); i++; continue; }
+    if (/^# /.test(line))   { out.push('<h1>' + escHtml(line.slice(2)) + '</h1>'); i++; continue; }
+    if (/^[-*] /.test(line)) {
+      var items = [];
+      while (i < lines.length && /^[-*] /.test(lines[i])) {
+        items.push('<li>' + escHtml(lines[i].slice(2)) + '</li>');
+        i++;
+      }
+      out.push('<ul>' + items.join('') + '</ul>');
+      continue;
+    }
+    if (/^\\d+\\. /.test(line)) {
+      var items = [];
+      while (i < lines.length && /^\\d+\\. /.test(lines[i])) {
+        items.push('<li>' + escHtml(lines[i].replace(/^\\d+\\. /, '')) + '</li>');
+        i++;
+      }
+      out.push('<ol>' + items.join('') + '</ol>');
+      continue;
+    }
+    if (line.trim() === '') { out.push('<br>'); i++; continue; }
+    out.push(escHtml(line));
+    i++;
+  }
+  var html = out.join('\\n');
+  html = html.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
+  html = html.replace(/\\*([^*\\n]+?)\\*/g, '<em>$1</em>');
+  html = html.replace(/([^>])\\n([^<])/g, '$1<br>$2');
+  return '<div class="md">' + html + '</div>';
+}
+`;
 
 /**
  * GET /api/rag-docs/chat/test - Get chat test interface
@@ -1448,6 +1499,21 @@ router.get('/chat/test', (req, res) => {
         .example-btn:hover {
             background: #dee2e6;
         }
+        .message-content h1, .message-content h2, .message-content h3 {
+            margin: 10px 0 4px;
+            font-weight: 600;
+            line-height: 1.3;
+        }
+        .message-content h1 { font-size: 1.1em; }
+        .message-content h2 { font-size: 1.05em; }
+        .message-content h3 { font-size: 1em; color: #374151; }
+        .message-content ul, .message-content ol {
+            margin: 4px 0 4px 18px;
+            padding: 0;
+        }
+        .message-content li { margin: 2px 0; }
+        .message-content p { margin: 4px 0; }
+        .message-content strong { font-weight: 600; }
     </style>
 </head>
 <body>
@@ -1526,7 +1592,7 @@ router.get('/chat/test', (req, res) => {
                         doc: new URLSearchParams(window.location.search).get('doc'),
                         includeHistory: document.getElementById('includeHistory').checked,
                         temperature: parseFloat(document.getElementById('temperature').value),
-                        topK: 3
+                        topK: ${DEFAULT_CHAT_TOP_K}
                     })
                 });
 
@@ -1570,6 +1636,8 @@ router.get('/chat/test', (req, res) => {
             </div>\`;
         }
 
+        ${renderMarkdownFn}
+
         function addMessage(role, content, isLoading = false, metadata = {}) {
             const messagesDiv = document.getElementById('chatMessages');
             const messageDiv = document.createElement('div');
@@ -1582,7 +1650,7 @@ router.get('/chat/test', (req, res) => {
             if (isLoading) {
                 messageHTML += \`<div class="loading">🔮 Thinking...</div>\`;
             } else {
-                messageHTML += content;
+                messageHTML += renderMarkdown(content);
             }
 
             messageHTML += \`</div>\`;
@@ -1698,10 +1766,15 @@ router.get('/chat/test', (req, res) => {
                         \${sources.map((s, i) => \`
                             <div style="margin:6px 0;padding:8px;background:#f9fafb;border-radius:6px;border-left:3px solid \${scoreColor(s.similarity)};">
                                 <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-                                    <span style="font-weight:600;">Chunk \${s.chunkIndex}</span>
-                                    <span style="color:\${scoreColor(s.similarity)};font-weight:600;">\${(s.similarity*100).toFixed(1)}% match</span>
+                                    <span style="font-weight:600;">Chunk \${s.chunkIndex}\${s.section ? ' <span style="font-weight:400;color:#6b7280;">· ' + s.section + '</span>' : ''}</span>
+                                    <span style="color:\${scoreColor(s.similarity)};font-weight:600;">\${(s.similarity*100).toFixed(1)}% hybrid</span>
                                 </div>
                                 \${scoreBar(s.similarity)}
+                                \${s.cosineScore !== undefined ? \`
+                                <div style="display:flex;gap:12px;margin-top:4px;font-size:0.8em;color:#6b7280;">
+                                    <span>Cosine: <strong>\${(s.cosineScore*100).toFixed(1)}%</strong></span>
+                                    <span>BM25: <strong>\${s.bm25Score !== undefined ? s.bm25Score.toFixed(3) : 'n/a'}</strong></span>
+                                </div>\` : ''}
                                 <div style="margin-top:6px;color:#4b5563;font-size:0.9em;font-style:italic;">"\${s.preview.substring(0,120)}..."</div>
                             </div>
                         \`).join('')}

@@ -233,6 +233,117 @@ class SectionAwareChunking extends ChunkingStrategy {
 }
 
 // ---------------------------------------------------------------------------
+// Strategy 3: GradeBoundaryChunking
+// ---------------------------------------------------------------------------
+/**
+ * Splits text at explicit "GRADE N" or "INITIAL GRADE" boundaries, prepending
+ * the grade label to every sub-chunk so BM25 and semantic search both see it.
+ *
+ * Why: ABRSM syllabus PDFs have "GRADE 7" as a page/section header, then
+ * dense scale/piece content that contains no grade number. Fixed-size chunking
+ * splits the label from the content into separate chunks, making it impossible
+ * to retrieve Grade 7 content with a "Grade 7" query.
+ *
+ * Good for: ABRSM-style syllabuses, graded exam documents, any structured doc
+ * where a label like "Grade N" scopes a block of content.
+ */
+class GradeBoundaryChunking extends ChunkingStrategy {
+  /**
+   * @param {number} maxGradeSize  Max chars before a grade section is sub-split (default 1500)
+   * @param {number} overlap       Overlap when sub-splitting large grade sections (default 150)
+   */
+  constructor(maxGradeSize = 1500, overlap = 150) {
+    super();
+    this.maxGradeSize = maxGradeSize;
+    this.overlap = overlap;
+
+    // Matches exactly "Grade N" or "Initial Grade" on its own line (no trailing numbers/text).
+    // Anchored with $ to exclude PDF table-of-contents rows like "Grade 681012" where
+    // multiple page numbers run together after PDF text extraction.
+    this.gradePattern = /^((?:INITIAL\s+)?GRADE\s+[1-8]|GRADE\s+INITIAL)$/i;
+  }
+
+  _isGradeBoundary(line) {
+    return this.gradePattern.test(line.trim());
+  }
+
+  _splitLargeSection(text, overlap) {
+    const subChunks = [];
+    let start = 0;
+    while (start < text.length) {
+      const end = Math.min(start + this.maxGradeSize, text.length);
+      let slice = text.slice(start, end);
+      if (end < text.length) {
+        const bp = Math.max(slice.lastIndexOf('.'), slice.lastIndexOf('\n'));
+        if (bp > slice.length * 0.7) slice = text.slice(start, start + bp + 1);
+      }
+      subChunks.push({ text: slice.trim(), startOffset: start });
+      start = start + slice.length - overlap;
+      if (start <= subChunks[subChunks.length - 1].startOffset)
+        start = subChunks[subChunks.length - 1].startOffset + slice.length;
+    }
+    return subChunks;
+  }
+
+  chunk(content) {
+    if (!content || typeof content !== 'string') return [];
+
+    const lines = content.split('\n');
+    const sections = []; // { label, text, startChar }
+    let currentLabel = 'Introduction';
+    let currentLines = [];
+    let charPos = 0;
+    let sectionStart = 0;
+
+    for (const line of lines) {
+      if (this._isGradeBoundary(line)) {
+        if (currentLines.length > 0) {
+          const text = currentLines.join('\n');
+          if (text.trim().length > 0)
+            sections.push({ label: currentLabel, text, startChar: sectionStart });
+        }
+        currentLabel = line.trim().toUpperCase();
+        currentLines = [line];
+        sectionStart = charPos;
+      } else {
+        currentLines.push(line);
+      }
+      charPos += line.length + 1;
+    }
+    if (currentLines.length > 0) {
+      const text = currentLines.join('\n');
+      if (text.trim().length > 0)
+        sections.push({ label: currentLabel, text, startChar: sectionStart });
+    }
+
+    const chunks = [];
+    for (const section of sections) {
+      // Prepend the grade label to every sub-chunk so keyword search always sees it
+      const labelPrefix = `${section.label}\n`;
+      const body = section.text;
+
+      if (body.length <= this.maxGradeSize) {
+        const content = (labelPrefix + body).trim();
+        chunks.push(this._makeChunk(content, chunks.length, section.startChar, {
+          section: section.label
+        }));
+      } else {
+        const subChunks = this._splitLargeSection(body, this.overlap);
+        for (const sub of subChunks) {
+          const content = (labelPrefix + sub.text).trim();
+          chunks.push(this._makeChunk(content, chunks.length, section.startChar + sub.startOffset, {
+            section: section.label
+          }));
+        }
+      }
+    }
+
+    console.log(`📝 GradeBoundaryChunking: ${chunks.length} chunks from ${sections.length} grade sections`);
+    return chunks;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 function createChunkingStrategy(type = process.env.CHUNKING_STRATEGY || 'fixed', options = {}) {
@@ -242,10 +353,16 @@ function createChunkingStrategy(type = process.env.CHUNKING_STRATEGY || 'fixed',
       options.overlap || 150
     );
   }
+  if (type === 'grade') {
+    return new GradeBoundaryChunking(
+      options.maxGradeSize || 1500,
+      options.overlap || 150
+    );
+  }
   return new FixedSizeChunking(
     options.chunkSize || 1000,
     options.overlap || 100
   );
 }
 
-module.exports = { createChunkingStrategy, FixedSizeChunking, SectionAwareChunking };
+module.exports = { createChunkingStrategy, FixedSizeChunking, SectionAwareChunking, GradeBoundaryChunking };

@@ -117,6 +117,146 @@ class VectorStore {
   }
 
   /**
+   * Hybrid search: weighted combination of cosine similarity and BM25 keyword score.
+   * Solves the problem where structured content (piece titles, grade numbers, scale names)
+   * scores low on cosine similarity because the vocabulary doesn't match natural language
+   * queries — BM25 catches exact keyword matches that semantic search misses.
+   *
+   * Final score = alpha * cosineScore + (1 - alpha) * bm25Score  (both normalised to 0-1)
+   *
+   * @param {string} query     - Search query
+   * @param {number} topK      - Number of results to return
+   * @param {number} threshold - Minimum hybrid score threshold (0-1)
+   * @param {number} alpha     - Weight for cosine (0=pure BM25, 1=pure cosine, default 0.5)
+   * @returns {Promise<Array<Object>>} Top results with hybrid score and component scores
+   */
+  async hybridSearch(query, topK = 5, threshold = 0.1, alpha = 0.5) {
+    if (this.embeddings.length === 0) {
+      throw new Error('No embeddings found in vector store');
+    }
+
+    console.log(`Hybrid search for: "${query}" (topK=${topK}, alpha=${alpha})`);
+
+    // ── Step 1: cosine similarity scores ──────────────────────────────────
+    const queryEmbedding = await this.generateQueryEmbedding(query);
+    const cosineScores = this.embeddings.map(item =>
+      this.cosineSimilarity(queryEmbedding, item.embedding)
+    );
+
+    // Normalise cosine scores to 0-1 (they already are, but clamp for safety)
+    const maxCosine = Math.max(...cosineScores, 1e-9);
+    const normCosine = cosineScores.map(s => s / maxCosine);
+
+    // ── Step 2: BM25 scores ────────────────────────────────────────────────
+    const bm25Scores = this.bm25Score(query);
+
+    // Normalise BM25 to 0-1
+    const maxBm25 = Math.max(...bm25Scores, 1e-9);
+    const normBm25 = bm25Scores.map(s => s / maxBm25);
+
+    // ── Step 3: weighted combination ──────────────────────────────────────
+    const results = this.embeddings.map((item, i) => ({
+      id: item.id,
+      content: item.content,
+      metadata: item.metadata,
+      similarity: alpha * normCosine[i] + (1 - alpha) * normBm25[i], // hybrid score
+      cosineScore: cosineScores[i],   // raw scores kept for scorecard display
+      bm25Score: bm25Scores[i]
+    }));
+
+    const filtered = results
+      .filter(r => r.similarity >= threshold)
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, topK);
+
+    console.log(`Hybrid search found ${filtered.length} results (alpha=${alpha})`);
+    return filtered;
+  }
+
+  /**
+   * BM25 scoring for all embeddings against a query.
+   * BM25 is a probabilistic keyword ranking function — it rewards chunks that
+   * contain query terms frequently (TF) relative to their length, discounted by
+   * how common the term is across all chunks (IDF).
+   *
+   * Parameters k1=1.5, b=0.75 are the standard BM25 defaults.
+   *
+   * @param {string} query
+   * @returns {Array<number>} BM25 score per embedding (same order as this.embeddings)
+   */
+  bm25Score(query) {
+    const k1 = 1.5;
+    const b  = 0.75;
+
+    // Common English stopwords — high-frequency words that carry no retrieval signal.
+    // Removed from both query and document tokens so they don't inflate BM25 scores
+    // for irrelevant prose chunks (e.g. "practice" matching "Purchasing these books is
+    // not a requirement" because both contain "for", "the", "a").
+    const STOPWORDS = new Set([
+      'a','an','the','and','or','but','in','on','at','to','for','of','with',
+      'by','from','is','are','was','were','be','been','being','have','has',
+      'had','do','does','did','will','would','could','should','may','might',
+      'i','you','he','she','it','we','they','what','which','who','this','that',
+      'these','those','not','no','so','if','as','up','out','about','into','than',
+      'then','there','can','just','more','also','any','all','its','their','my',
+    ]);
+
+    // Tokenise: lowercase, split on non-word chars, drop stopwords.
+    // Keep numeric tokens like "7" in "Grade 7" — critical for grade-specific queries.
+    const tokenise = text => text.toLowerCase().split(/\W+/)
+      .filter(t => t.length > 0 && !STOPWORDS.has(t));
+
+    const queryTerms = tokenise(query);
+    if (queryTerms.length === 0) return this.embeddings.map(() => 0);
+
+    const docs = this.embeddings.map(e => tokenise(e.content));
+    const N = docs.length;
+    const avgDl = docs.reduce((s, d) => s + d.length, 0) / N;
+
+    // IDF per query term: log((N - df + 0.5) / (df + 0.5) + 1)
+    const idf = {};
+    for (const term of queryTerms) {
+      if (idf[term] !== undefined) continue;
+      const df = docs.filter(d => d.includes(term)).length;
+      idf[term] = Math.log((N - df + 0.5) / (df + 0.5) + 1);
+    }
+
+    // Build bigrams from query for phrase matching (e.g. "grade 7" as a unit)
+    const queryBigrams = [];
+    for (let i = 0; i < queryTerms.length - 1; i++) {
+      queryBigrams.push(queryTerms[i] + '_' + queryTerms[i + 1]);
+    }
+
+    // Score each document
+    return docs.map((tokens, docIdx) => {
+      const dl = tokens.length;
+      const tf = {};
+      for (const t of tokens) tf[t] = (tf[t] || 0) + 1;
+
+      let score = 0;
+      for (const term of queryTerms) {
+        const termFreq = tf[term] || 0;
+        score += idf[term] * (termFreq * (k1 + 1)) / (termFreq + k1 * (1 - b + b * dl / avgDl));
+      }
+
+      // Phrase bonus: if the document contains adjacent query bigrams (e.g. "grade 7"),
+      // add a fixed bonus per matching bigram. This lifts chunks that contain the exact
+      // phrase above chunks that only match individual tokens.
+      if (queryBigrams.length > 0) {
+        const docBigrams = new Set();
+        for (let i = 0; i < tokens.length - 1; i++) {
+          docBigrams.add(tokens[i] + '_' + tokens[i + 1]);
+        }
+        for (const bigram of queryBigrams) {
+          if (docBigrams.has(bigram)) score += 2.0;
+        }
+      }
+
+      return score;
+    });
+  }
+
+  /**
    * Calculate cosine similarity between two vectors
    * @param {Array<number>} vecA - First vector
    * @param {Array<number>} vecB - Second vector
