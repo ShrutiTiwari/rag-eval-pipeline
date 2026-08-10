@@ -188,259 +188,296 @@ router.get('/evaluate', async (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RAG Retrieval Evaluation</title>
+    <title>Retrieval Evaluation${doc ? ' — ' + doc : ''}</title>
     <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background: #f5f5f5;
-            line-height: 1.6;
+            background: #f0f2f5;
+            min-height: 100vh;
         }
-        .container {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            padding: 30px;
-            margin-bottom: 20px;
-        }
-        h1 {
-            color: #2563eb;
-            margin-top: 0;
+        /* ── HEADER ── */
+        .page-header {
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: white;
+            padding: 16px 28px;
             display: flex;
             align-items: center;
-            gap: 10px;
+            justify-content: space-between;
         }
+        .header-left { display: flex; align-items: center; gap: 12px; }
+        .header-icon {
+            width: 38px; height: 38px;
+            background: rgba(255,255,255,0.12);
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.2rem;
+        }
+        .header-title { font-size: 0.95rem; font-weight: 700; }
+        .header-sub { font-size: 0.75rem; color: rgba(255,255,255,0.6); margin-top: 1px; }
+        .header-actions { display: flex; gap: 10px; align-items: center; }
+        .back-link {
+            color: rgba(255,255,255,0.6);
+            text-decoration: none;
+            font-size: 0.8rem;
+        }
+        .back-link:hover { color: white; }
+        .hdr-btn {
+            padding: 6px 14px;
+            border-radius: 7px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-decoration: none;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: rgba(255,255,255,0.85);
+            transition: background 0.15s;
+        }
+        .hdr-btn:hover { background: rgba(255,255,255,0.2); }
+
+        /* ── MAIN ── */
+        .main { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
+
+        /* ── METRICS GRID ── */
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin: 30px 0;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 14px;
+            margin-bottom: 28px;
         }
         .metric-card {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 20px;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 20px 16px;
             text-align: center;
+            transition: box-shadow 0.15s;
         }
+        .metric-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
         .metric-value {
-            font-size: 2.5em;
-            font-weight: bold;
-            color: #1e40af;
-            margin: 10px 0;
+            font-size: 2rem;
+            font-weight: 800;
+            color: #4f46e5;
+            line-height: 1;
+            margin-bottom: 6px;
         }
         .metric-label {
-            font-size: 0.9em;
-            color: #64748b;
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #6b7280;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.08em;
         }
         .metric-desc {
-            font-size: 0.8em;
-            color: #475569;
-            margin-top: 8px;
+            font-size: 0.72rem;
+            color: #9ca3af;
+            margin-top: 4px;
+            line-height: 1.4;
         }
-        .difficulty-section {
-            margin: 30px 0;
+
+        /* ── SECTION HEADERS ── */
+        .section-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: #6b7280;
+            margin-bottom: 12px;
         }
+
+        /* ── DIFFICULTY CARDS ── */
         .difficulty-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 15px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-bottom: 28px;
         }
         .difficulty-card {
-            background: #fefefe;
+            background: white;
             border: 1px solid #e5e7eb;
-            border-radius: 6px;
-            padding: 15px;
+            border-radius: 10px;
+            padding: 16px;
         }
         .difficulty-title {
-            font-weight: 600;
+            font-weight: 700;
             text-transform: capitalize;
             margin-bottom: 10px;
-            color: #374151;
+            font-size: 0.92rem;
+            color: #1f2937;
         }
-        .difficulty-easy { border-left: 4px solid #10b981; }
+        .difficulty-stat { font-size: 0.82rem; color: #4b5563; margin-bottom: 3px; }
+        .difficulty-easy  { border-left: 4px solid #10b981; }
         .difficulty-medium { border-left: 4px solid #f59e0b; }
-        .difficulty-hard { border-left: 4px solid #ef4444; }
+        .difficulty-hard  { border-left: 4px solid #ef4444; }
 
-        .queries-section {
-            margin-top: 40px;
-        }
+        /* ── QUERY ITEMS ── */
         .query-item {
-            background: #f9fafb;
+            background: white;
             border: 1px solid #e5e7eb;
-            border-radius: 6px;
-            padding: 15px;
-            margin: 10px 0;
+            border-radius: 10px;
+            padding: 16px 18px;
+            margin-bottom: 10px;
         }
         .query-question {
             font-weight: 600;
             color: #1f2937;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
+            font-size: 0.92rem;
         }
-        .query-metrics {
-            display: flex;
-            gap: 20px;
-            flex-wrap: wrap;
-            margin: 8px 0;
-        }
+        .query-metrics { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
         .query-metric {
-            font-size: 0.9em;
-            padding: 2px 8px;
-            border-radius: 4px;
-            background: #e5e7eb;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 3px 10px;
+            border-radius: 20px;
+            background: #f3f4f6;
+            color: #374151;
         }
-        .good { background: #dcfce7; color: #166534; }
-        .okay { background: #fef3c7; color: #92400e; }
-        .poor { background: #fee2e2; color: #991b1b; }
+        .good  { background: #dcfce7; color: #166534; }
+        .okay  { background: #fef3c7; color: #92400e; }
+        .poor  { background: #fee2e2; color: #991b1b; }
+        .neutral { background: #f3f4f6; color: #374151; }
 
-        .nav {
-            margin: 20px 0;
-            text-align: center;
+        .top-result-box {
+            margin-top: 10px;
+            padding: 10px 12px;
+            background: #f9fafb;
+            border-left: 3px solid #4f46e5;
+            border-radius: 0 6px 6px 0;
+            font-size: 0.82rem;
+            color: #374151;
         }
-        .nav a {
-            color: #2563eb;
-            text-decoration: none;
-            margin: 0 15px;
-            padding: 8px 16px;
-            border: 1px solid #e2e8f0;
+        .top-result-preview {
+            margin-top: 6px;
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+            font-size: 0.8em;
+            color: #4b5563;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+        .sources-list { margin-top: 8px; max-height: 280px; overflow-y: auto; }
+        .source-row {
+            margin: 6px 0;
+            padding: 8px;
+            background: #f9fafb;
             border-radius: 6px;
-            transition: all 0.2s;
+            font-size: 0.78rem;
         }
-        .nav a:hover {
-            background: #2563eb;
-            color: white;
-        }
+        .source-row-top { border-left: 3px solid #10b981; }
+        .source-row-rest { border-left: 3px solid #d1d5db; }
+        .source-preview { margin-top: 3px; color: #6b7280; max-height: 60px; overflow: hidden; }
+
         .timestamp {
             text-align: center;
-            color: #6b7280;
-            font-size: 0.9em;
-            margin-top: 30px;
+            color: #9ca3af;
+            font-size: 0.78rem;
+            margin-top: 24px;
         }
+        details > summary { cursor: pointer; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>📊 RAG Retrieval Evaluation</h1>
-
-        <div class="nav">
-            <a href="/api/rag-docs">← Back to Documents</a>
-            <a href="/api/rag-docs/chat/test">Chat Test</a>
-            <a href="/api/rag-docs/evaluate?format=json">View JSON</a>
+    <div class="page-header">
+        <div class="header-left">
+            <div class="header-icon">📊</div>
+            <div>
+                <div class="header-title">Retrieval Evaluation${doc ? ' — ' + doc : ''}</div>
+                <div class="header-sub">Precision · Recall · F1 · MRR · NDCG</div>
+            </div>
         </div>
+        <div class="header-actions">
+            <a href="/api/rag-docs/evaluate?doc=${encodeURIComponent(doc)}&format=json" class="hdr-btn">{ } JSON</a>
+            <a href="/api/rag-docs/chat/test?doc=${encodeURIComponent(doc)}" class="hdr-btn">💬 Chat</a>
+            <a href="/" class="back-link">← Dashboard</a>
+        </div>
+    </div>
 
+    <div class="main">
+        <div class="section-label" style="margin-bottom:14px;">Overall Metrics</div>
         <div class="metrics-grid">
             <div class="metric-card">
                 <div class="metric-value">${evaluation.overall.avgPrecision}</div>
                 <div class="metric-label">Precision</div>
-                <div class="metric-desc">% of retrieved that was relevant</div>
+                <div class="metric-desc">Of retrieved, how many were relevant</div>
             </div>
             <div class="metric-card">
                 <div class="metric-value">${evaluation.overall.avgRecall}</div>
                 <div class="metric-label">Recall</div>
-                <div class="metric-desc">% of relevant that was found</div>
+                <div class="metric-desc">Of relevant, how many were found</div>
             </div>
             <div class="metric-card">
                 <div class="metric-value">${evaluation.overall.avgF1}</div>
                 <div class="metric-label">F1-Score</div>
-                <div class="metric-desc">Combined precision & recall</div>
+                <div class="metric-desc">Harmonic mean of P &amp; R</div>
             </div>
             <div class="metric-card">
                 <div class="metric-value">${evaluation.overall.avgMRR}</div>
                 <div class="metric-label">MRR</div>
-                <div class="metric-desc">First result relevance</div>
+                <div class="metric-desc">First relevant result rank</div>
             </div>
             <div class="metric-card">
                 <div class="metric-value">${evaluation.overall.avgNDCG || 'N/A'}</div>
                 <div class="metric-label">NDCG</div>
-                <div class="metric-desc">Ranking quality</div>
+                <div class="metric-desc">Full ranking quality</div>
             </div>
             <div class="metric-card">
                 <div class="metric-value">${evaluation.overall.avgRetrievalTime || 'N/A'}ms</div>
-                <div class="metric-label">Speed</div>
-                <div class="metric-desc">Average retrieval time</div>
+                <div class="metric-label">Avg Speed</div>
+                <div class="metric-desc">Per query retrieval time</div>
             </div>
         </div>
 
-        <div class="difficulty-section">
-            <h2>Performance by Difficulty</h2>
-            <div class="difficulty-grid">
-                ${Object.entries(evaluation.byDifficulty).map(([difficulty, metrics]) => `
-                    <div class="difficulty-card difficulty-${difficulty}">
-                        <div class="difficulty-title">${difficulty} Questions</div>
-                        <div><strong>F1:</strong> ${metrics.avgF1} <strong>MRR:</strong> ${metrics.avgMRR}</div>
-                        <div><strong>Count:</strong> ${metrics.count}</div>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-
-        <div class="queries-section">
-            <h2>Individual Query Results</h2>
-            ${evaluation.detailed.map(query => `
-                <div class="query-item">
-                    <div class="query-question">${query.question}</div>
-                    <div class="query-metrics">
-                        <span class="query-metric ${query.precision > 0.7 ? 'good' : query.precision > 0.4 ? 'okay' : 'poor'}">
-                            Precision: ${query.precision}
-                        </span>
-                        <span class="query-metric ${query.recall > 0.7 ? 'good' : query.recall > 0.4 ? 'okay' : 'poor'}">
-                            Recall: ${query.recall}
-                        </span>
-                        <span class="query-metric ${query.f1Score > 0.7 ? 'good' : query.f1Score > 0.4 ? 'okay' : 'poor'}">
-                            F1: ${query.f1Score}
-                        </span>
-                        <span class="query-metric">
-                            Difficulty: ${query.difficulty}
-                        </span>
-                        <span class="query-metric">
-                            Retrieved: ${query.retrievedCount}
-                        </span>
-                    </div>
-                    ${query.topResult ? `
-                        <div style="margin-top: 10px; padding: 10px; background: #f3f4f6; border-radius: 4px; font-size: 0.9em;">
-                            <strong>Top Result:</strong> ${query.topResult.metadata.filename}
-                            (similarity: ${(query.topResult.similarity * 100).toFixed(1)}%)
-                            <div style="margin-top: 8px; padding: 8px; background: #ffffff; border-radius: 4px; font-size: 0.85em; max-height: 150px; overflow-y: auto; border-left: 3px solid #3b82f6;">
-                                <strong>Content Preview:</strong><br>
-                                ${query.topResult.content.substring(0, 300)}${query.topResult.content.length > 300 ? '...' : ''}
-                            </div>
-                        </div>
-                    ` : ''}
-                    ${query.retrievedSources && query.retrievedSources.length > 1 ? `
-                        <details style="margin-top: 10px;">
-                            <summary style="cursor: pointer; font-weight: 600; color: #374151;">
-                                View All ${query.retrievedSources.length} Retrieved Results
-                            </summary>
-                            <div style="margin-top: 10px; max-height: 300px; overflow-y: auto;">
-                                ${query.retrievedSources.map((source, idx) => `
-                                    <div style="margin: 8px 0; padding: 8px; background: #f9fafb; border-radius: 4px; border-left: 3px solid ${idx === 0 ? '#10b981' : '#6b7280'};">
-                                        <div style="font-weight: 600; font-size: 0.9em;">
-                                            #${idx + 1} - ${source.filename} (chunk ${source.chunkIndex})
-                                            <span style="color: #6b7280; font-weight: normal;">
-                                                - ${(source.similarity * 100).toFixed(1)}% match
-                                            </span>
-                                        </div>
-                                        ${source.content ? `
-                                            <div style="margin-top: 4px; font-size: 0.8em; color: #4b5563; max-height: 80px; overflow: hidden;">
-                                                ${source.content.substring(0, 200)}${source.content.length > 200 ? '...' : ''}
-                                            </div>
-                                        ` : ''}
-                                    </div>
-                                `).join('')}
-                            </div>
-                        </details>
-                    ` : ''}
+        <div class="section-label">Performance by Difficulty</div>
+        <div class="difficulty-grid">
+            ${Object.entries(evaluation.byDifficulty).map(([difficulty, metrics]) => `
+                <div class="difficulty-card difficulty-${difficulty}">
+                    <div class="difficulty-title">${difficulty} Questions</div>
+                    <div class="difficulty-stat"><strong>F1:</strong> ${metrics.avgF1} &nbsp; <strong>MRR:</strong> ${metrics.avgMRR}</div>
+                    <div class="difficulty-stat"><strong>Count:</strong> ${metrics.count} queries</div>
                 </div>
             `).join('')}
         </div>
 
-        <div class="timestamp">
-            Evaluation completed at: ${new Date().toLocaleString()}
-        </div>
+        <div class="section-label">Individual Query Results</div>
+        ${evaluation.detailed.map(query => `
+            <div class="query-item">
+                <div class="query-question">${query.question}</div>
+                <div class="query-metrics">
+                    <span class="query-metric ${query.precision > 0.7 ? 'good' : query.precision > 0.4 ? 'okay' : 'poor'}">Precision: ${query.precision}</span>
+                    <span class="query-metric ${query.recall > 0.7 ? 'good' : query.recall > 0.4 ? 'okay' : 'poor'}">Recall: ${query.recall}</span>
+                    <span class="query-metric ${query.f1Score > 0.7 ? 'good' : query.f1Score > 0.4 ? 'okay' : 'poor'}">F1: ${query.f1Score}</span>
+                    <span class="query-metric neutral">Difficulty: ${query.difficulty}</span>
+                    <span class="query-metric neutral">Retrieved: ${query.retrievedCount}</span>
+                </div>
+                ${query.topResult ? `
+                    <div class="top-result-box">
+                        <strong>Top Result:</strong> ${query.topResult.metadata.filename}
+                        — <span style="color:#4f46e5;font-weight:600;">${(query.topResult.similarity * 100).toFixed(1)}% similarity</span>
+                        <div class="top-result-preview">${query.topResult.content.substring(0, 300)}${query.topResult.content.length > 300 ? '…' : ''}</div>
+                    </div>
+                ` : ''}
+                ${query.retrievedSources && query.retrievedSources.length > 1 ? `
+                    <details style="margin-top:10px;">
+                        <summary style="font-size:0.82rem;font-weight:600;color:#6b7280;padding:4px 0;">
+                            View all ${query.retrievedSources.length} retrieved chunks
+                        </summary>
+                        <div class="sources-list">
+                            ${query.retrievedSources.map((source, idx) => `
+                                <div class="source-row ${idx === 0 ? 'source-row-top' : 'source-row-rest'}">
+                                    <strong>#${idx + 1}</strong> ${source.filename} · chunk ${source.chunkIndex}
+                                    <span style="color:#4f46e5;font-weight:600;margin-left:6px;">${(source.similarity * 100).toFixed(1)}%</span>
+                                    ${source.content ? `<div class="source-preview">${source.content.substring(0, 180)}${source.content.length > 180 ? '…' : ''}</div>` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </details>
+                ` : ''}
+            </div>
+        `).join('')}
+
+        <div class="timestamp">Evaluation completed at ${new Date().toLocaleString()}</div>
     </div>
 </body>
 </html>`;
@@ -574,137 +611,182 @@ router.get('/:id/view', async (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${document.metadata.filename} - Document Viewer</title>
+    <title>${document.metadata.filename} — Document Viewer</title>
     <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            line-height: 1.6;
-            background: #f5f5f5;
+            background: #f0f2f5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
-        .header {
+        /* ── HEADER ── */
+        .page-header {
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: white;
+            padding: 16px 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .header-left { display: flex; align-items: center; gap: 12px; }
+        .header-icon {
+            width: 38px; height: 38px;
+            background: rgba(255,255,255,0.12);
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.2rem;
+        }
+        .header-title { font-size: 0.95rem; font-weight: 700; }
+        .header-sub { font-size: 0.75rem; color: rgba(255,255,255,0.6); margin-top: 1px; }
+        .back-link {
+            color: rgba(255,255,255,0.6);
+            text-decoration: none;
+            font-size: 0.8rem;
+        }
+        .back-link:hover { color: white; }
+
+        /* ── META BAR ── */
+        .meta-bar {
             background: white;
-            padding: 20px;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 14px 28px;
+            display: flex;
+            gap: 32px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .meta-item { text-align: center; }
+        .meta-value { font-size: 1.1rem; font-weight: 700; color: #4f46e5; line-height: 1; }
+        .meta-label { font-size: 0.7rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+
+        /* ── TOOLBAR ── */
+        .toolbar {
+            background: white;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 12px 28px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .toolbar input {
+            flex: 1;
+            max-width: 360px;
+            padding: 8px 14px;
+            border: 1.5px solid #e5e7eb;
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
+            font-size: 0.88rem;
+            outline: none;
+            transition: border-color 0.15s;
         }
-        .metadata {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 15px 0;
+        .toolbar input:focus { border-color: #6366f1; }
+        .toolbar-btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            text-decoration: none;
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s;
         }
-        .metadata-item {
-            background: #f8f9fa;
-            padding: 10px;
-            border-radius: 4px;
-        }
-        .metadata-label {
-            font-weight: bold;
-            color: #666;
-            font-size: 0.9em;
+        .btn-chunks { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
+        .btn-chunks:hover { background: #e5e7eb; }
+        .btn-json { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
+        .btn-json:hover { background: #e5e7eb; }
+        .match-count { font-size: 0.78rem; color: #6b7280; margin-left: 4px; }
+
+        /* ── CONTENT ── */
+        .content-wrap {
+            flex: 1;
+            overflow-y: auto;
+            padding: 28px;
         }
         .content {
             background: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 32px 36px;
             white-space: pre-wrap;
             font-family: 'Georgia', serif;
-            font-size: 16px;
-            line-height: 1.8;
-        }
-        .nav {
-            margin: 20px 0;
-            text-align: center;
-        }
-        .nav a {
-            display: inline-block;
-            padding: 10px 20px;
-            background: #007bff;
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-            margin: 0 10px;
-        }
-        .nav a:hover {
-            background: #0056b3;
-        }
-        .search-box {
-            margin: 15px 0;
-        }
-        .search-box input {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 16px;
+            font-size: 15px;
+            line-height: 1.85;
+            color: #1f2937;
+            max-width: 860px;
+            margin: 0 auto;
         }
         .highlight {
-            background-color: yellow;
-            padding: 2px 4px;
+            background: #fef08a;
+            border-radius: 2px;
+            padding: 1px 2px;
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>📄 ${document.metadata.filename}</h1>
-
-        <div class="metadata">
-            <div class="metadata-item">
-                <div class="metadata-label">File Size</div>
-                <div>${Math.round(document.metadata.filesize / 1024)} KB</div>
-            </div>
-            <div class="metadata-item">
-                <div class="metadata-label">Pages</div>
-                <div>${document.metadata.pages}</div>
-            </div>
-            <div class="metadata-item">
-                <div class="metadata-label">Characters</div>
-                <div>${document.content.length.toLocaleString()}</div>
-            </div>
-            <div class="metadata-item">
-                <div class="metadata-label">Extracted</div>
-                <div>${new Date(document.metadata.extractedAt).toLocaleString()}</div>
+    <div class="page-header">
+        <div class="header-left">
+            <div class="header-icon">📄</div>
+            <div>
+                <div class="header-title">${document.metadata.filename}</div>
+                <div class="header-sub">Document Viewer</div>
             </div>
         </div>
+        <a href="/" class="back-link">← Dashboard</a>
+    </div>
 
-        <div class="search-box">
-            <input type="text" id="searchInput" placeholder="Search in document..." onkeyup="searchText()">
+    <div class="meta-bar">
+        <div class="meta-item">
+            <div class="meta-value">${Math.round(document.metadata.filesize / 1024)} KB</div>
+            <div class="meta-label">File Size</div>
         </div>
-
-        <div class="nav">
-            <a href="/api/rag-docs">← Back to Documents</a>
-            <a href="/api/rag-docs/${docId}/chunks">View Chunks</a>
-            <a href="/api/rag-docs/${docId}">JSON Data</a>
+        <div class="meta-item">
+            <div class="meta-value">${document.metadata.pages}</div>
+            <div class="meta-label">Pages</div>
+        </div>
+        <div class="meta-item">
+            <div class="meta-value">${document.content.length.toLocaleString()}</div>
+            <div class="meta-label">Characters</div>
+        </div>
+        <div class="meta-item">
+            <div class="meta-value">${new Date(document.metadata.extractedAt).toLocaleDateString()}</div>
+            <div class="meta-label">Extracted</div>
         </div>
     </div>
 
-    <div class="content" id="documentContent">${document.content}</div>
+    <div class="toolbar">
+        <input type="text" id="searchInput" placeholder="Search in document… (min 3 chars)" onkeyup="searchText()">
+        <span class="match-count" id="matchCount"></span>
+        <a href="/api/rag-docs/${docId}/chunks" class="toolbar-btn btn-chunks">✂️ Chunks</a>
+        <a href="/api/rag-docs/${docId}" class="toolbar-btn btn-json">{ } JSON</a>
+    </div>
+
+    <div class="content-wrap">
+        <div class="content" id="documentContent">${document.content}</div>
+    </div>
 
     <script>
         function searchText() {
             const searchTerm = document.getElementById('searchInput').value;
             const content = document.getElementById('documentContent');
+            const matchCount = document.getElementById('matchCount');
             const originalText = \`${document.content.replace(/`/g, '\\`')}\`;
 
             if (searchTerm.length < 3) {
                 content.innerHTML = originalText;
+                matchCount.textContent = '';
                 return;
             }
 
             const regex = new RegExp(searchTerm, 'gi');
+            const matches = (originalText.match(regex) || []).length;
             const highlightedText = originalText.replace(regex, '<span class="highlight">$&</span>');
             content.innerHTML = highlightedText;
+            matchCount.textContent = matches ? \`\${matches} match\${matches !== 1 ? 'es' : ''}\` : 'No matches';
 
-            // Scroll to first match
             const firstMatch = content.querySelector('.highlight');
-            if (firstMatch) {
-                firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
+            if (firstMatch) firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     </script>
 </body>
@@ -899,149 +981,245 @@ router.get('/vector-search/test', (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vector Search Test</title>
+    <title>Vector Search${doc ? ' — ' + doc : ''}</title>
     <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 20px;
-            background: #f5f5f5;
+            background: #f0f2f5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
-        .container {
+        /* ── HEADER ── */
+        .page-header {
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: white;
+            padding: 16px 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .header-left { display: flex; align-items: center; gap: 12px; }
+        .header-icon {
+            width: 38px; height: 38px;
+            background: rgba(255,255,255,0.12);
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.2rem;
+        }
+        .header-title { font-size: 0.95rem; font-weight: 700; }
+        .header-sub { font-size: 0.75rem; color: rgba(255,255,255,0.6); margin-top: 1px; }
+        .header-pills { display: flex; gap: 8px; }
+        .header-pill {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: rgba(255,255,255,0.75);
+            font-size: 0.72rem;
+            padding: 4px 10px;
+            border-radius: 20px;
+        }
+        .back-link {
+            color: rgba(255,255,255,0.6);
+            text-decoration: none;
+            font-size: 0.8rem;
+        }
+        .back-link:hover { color: white; }
+
+        /* ── SEARCH PANEL ── */
+        .search-panel {
             background: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-bottom: 1px solid #e5e7eb;
+            padding: 20px 28px;
         }
-        .search-box {
-            margin-bottom: 20px;
+        .search-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 12px;
         }
-        .search-box input[type="text"] {
-            width: 70%;
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 4px;
-            font-size: 16px;
+        .search-row input[type="text"] {
+            flex: 1;
+            padding: 11px 16px;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 0.92rem;
+            outline: none;
+            transition: border-color 0.15s;
         }
-        .search-box button {
-            width: 25%;
-            padding: 12px;
-            background: #007bff;
+        .search-row input[type="text"]:focus { border-color: #6366f1; }
+        .search-btn {
+            padding: 11px 24px;
+            background: linear-gradient(135deg, #4f46e5, #7c3aed);
             color: white;
             border: none;
-            border-radius: 4px;
-            font-size: 16px;
+            border-radius: 10px;
+            font-size: 0.92rem;
+            font-weight: 600;
             cursor: pointer;
-            margin-left: 10px;
+            transition: opacity 0.15s;
         }
-        .search-box button:hover {
-            background: #0056b3;
-        }
-        .search-box button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
-        .controls {
+        .search-btn:hover { opacity: 0.9; }
+        .search-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .controls-row {
             display: flex;
+            align-items: center;
             gap: 20px;
-            margin-bottom: 20px;
+            flex-wrap: wrap;
         }
         .control-group {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
+            font-size: 0.82rem;
+            color: #6b7280;
         }
-        .control-group label {
-            font-weight: bold;
-        }
+        .control-group label { font-weight: 600; color: #374151; }
         .control-group input {
-            padding: 5px;
-            border: 1px solid #ddd;
-            border-radius: 3px;
-            width: 80px;
+            padding: 5px 8px;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 7px;
+            width: 72px;
+            font-size: 0.82rem;
+            outline: none;
         }
-        .results {
-            margin-top: 20px;
+        .control-group input:focus { border-color: #6366f1; }
+        .example-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
+        .example-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+        .example-query {
+            background: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            color: #374151;
+            padding: 5px 12px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.78rem;
+            font-weight: 500;
+            transition: all 0.15s;
+        }
+        .example-query:hover { background: #e5e7eb; }
+
+        /* ── RESULTS ── */
+        .results-area {
+            flex: 1;
+            padding: 24px 28px;
+            overflow-y: auto;
+        }
+        .stats-bar {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            font-size: 0.85rem;
+            color: #374151;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .stats-bar strong { color: #4f46e5; }
         .result-item {
-            background: #f8f9fa;
-            padding: 15px;
-            margin-bottom: 15px;
-            border-radius: 6px;
-            border-left: 4px solid #007bff;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 16px 18px;
+            margin-bottom: 12px;
+            border-left: 4px solid #4f46e5;
+            transition: box-shadow 0.15s;
         }
+        .result-item:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
         .result-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 10px;
         }
-        .similarity-score {
-            background: #007bff;
-            color: white;
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: bold;
+        .result-rank {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
+        .similarity-score {
+            font-size: 0.8rem;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 20px;
+        }
+        .score-high { background: #d1fae5; color: #065f46; }
+        .score-mid  { background: #fef3c7; color: #92400e; }
+        .score-low  { background: #fee2e2; color: #991b1b; }
         .result-content {
-            line-height: 1.6;
+            font-size: 0.88rem;
+            line-height: 1.65;
+            color: #374151;
             margin-bottom: 10px;
+            background: #f9fafb;
+            border-left: 3px solid #e5e7eb;
+            padding: 8px 12px;
+            border-radius: 0 6px 6px 0;
         }
         .result-metadata {
-            font-size: 12px;
-            color: #666;
             display: flex;
-            gap: 15px;
+            gap: 12px;
+            font-size: 0.75rem;
+            color: #9ca3af;
         }
+        .score-bar-wrap { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .score-bar-bg { flex: 1; background: #f3f4f6; border-radius: 4px; height: 5px; }
+        .score-bar-fill { height: 5px; border-radius: 4px; }
         .loading {
             text-align: center;
-            padding: 20px;
-            color: #666;
+            padding: 48px;
+            color: #6b7280;
+            font-size: 0.9rem;
         }
+        .spinner {
+            width: 28px; height: 28px;
+            border: 3px solid #e5e7eb;
+            border-top-color: #4f46e5;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            margin: 0 auto 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
         .error {
-            background: #f8d7da;
-            color: #721c24;
-            padding: 15px;
-            border-radius: 4px;
-            margin: 20px 0;
+            background: #fef2f2; color: #991b1b;
+            border: 1px solid #fecaca;
+            padding: 14px 16px; border-radius: 10px;
         }
-        .stats {
-            background: #e7f3ff;
-            padding: 15px;
-            border-radius: 4px;
-            margin-bottom: 20px;
-            font-size: 14px;
-        }
-        .example-queries {
-            margin: 20px 0;
-        }
-        .example-query {
-            display: inline-block;
-            background: #e9ecef;
-            padding: 5px 10px;
-            margin: 5px;
-            border-radius: 15px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-        .example-query:hover {
-            background: #dee2e6;
-        }
+        .empty { text-align: center; padding: 40px; color: #6b7280; font-size: 0.9rem; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🔍 Vector Search${doc ? ' — ' + doc : ''}</h1>
-        <p>Test the RAG vector search functionality with real OpenAI embeddings</p>
-
-        <div class="search-box">
-            <input type="text" id="searchQuery" placeholder="Enter your search query..." value="${exampleQueries[0].query}">
-            <button onclick="performSearch()" id="searchBtn">Search</button>
+    <div class="page-header">
+        <div class="header-left">
+            <div class="header-icon">🔍</div>
+            <div>
+                <div class="header-title">Vector Search${doc ? ' — ' + doc : ''}</div>
+                <div class="header-sub">Hybrid BM25 + Semantic Retrieval · Cosine &amp; Keyword scores</div>
+            </div>
         </div>
+        <div class="header-pills">
+            <span class="header-pill">Local Embeddings</span>
+            <span class="header-pill">BM25 + Cosine</span>
+        </div>
+        <a href="/" class="back-link">← Dashboard</a>
+    </div>
 
-        <div class="controls">
+    <div class="search-panel">
+        <div class="search-row">
+            <input type="text" id="searchQuery" placeholder="Enter your search query…" value="${exampleQueries[0].query}">
+            <button class="search-btn" onclick="performSearch()" id="searchBtn">Search →</button>
+        </div>
+        <div class="controls-row">
             <div class="control-group">
                 <label>Top K:</label>
                 <input type="number" id="topK" value="${DEFAULT_SEARCH_TOP_K}" min="1" max="10">
@@ -1051,16 +1229,22 @@ router.get('/vector-search/test', (req, res) => {
                 <input type="number" id="threshold" value="0.1" min="0" max="1" step="0.1">
             </div>
         </div>
-
-        <div class="example-queries">
-            <strong>Example queries:</strong><br>
+        <div class="example-chips">
+            <span class="example-label">Try:</span>
             ${exampleChipsHtml}
         </div>
-
-        <div id="results"></div>
     </div>
 
+    <div class="results-area" id="results"></div>
+
     <script>
+        function scoreClass(s) {
+            return s >= 0.75 ? 'score-high' : s >= 0.5 ? 'score-mid' : 'score-low';
+        }
+        function scoreColor(s) {
+            return s >= 0.75 ? '#10b981' : s >= 0.5 ? '#f59e0b' : '#ef4444';
+        }
+
         async function performSearch() {
             const query = document.getElementById('searchQuery').value.trim();
             const topK = parseInt(document.getElementById('topK').value);
@@ -1068,38 +1252,28 @@ router.get('/vector-search/test', (req, res) => {
             const searchBtn = document.getElementById('searchBtn');
             const resultsDiv = document.getElementById('results');
 
-            if (!query) {
-                alert('Please enter a search query');
-                return;
-            }
+            if (!query) { alert('Please enter a search query'); return; }
 
-            // Show loading state
             searchBtn.disabled = true;
-            searchBtn.textContent = 'Searching...';
-            resultsDiv.innerHTML = '<div class="loading">🔮 Generating embeddings and searching...</div>';
+            searchBtn.textContent = 'Searching…';
+            resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Generating embeddings and searching…</div>';
 
             try {
                 const response = await fetch('/api/rag-docs/vector-search', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ query, topK, threshold, doc: new URLSearchParams(window.location.search).get('doc') })
                 });
 
                 const data = await response.json();
-
-                if (data.success) {
-                    displayResults(data);
-                } else {
-                    displayError(data.error, data.helpText);
-                }
+                if (data.success) { displayResults(data); }
+                else { displayError(data.error, data.helpText); }
 
             } catch (error) {
                 displayError('Network error: ' + error.message);
             } finally {
                 searchBtn.disabled = false;
-                searchBtn.textContent = 'Search';
+                searchBtn.textContent = 'Search →';
             }
         }
 
@@ -1107,27 +1281,35 @@ router.get('/vector-search/test', (req, res) => {
             const resultsDiv = document.getElementById('results');
 
             let html = \`
-                <div class="stats">
-                    📊 <strong>Search Results:</strong> \${data.resultsCount} matches for "\${data.query}" |
-                    Vector Store: \${data.vectorStoreStats.totalEmbeddings} embeddings from \${data.vectorStoreStats.uniqueDocuments} documents
+                <div class="stats-bar">
+                    📊 <strong>\${data.resultsCount} results</strong> for "\${data.query}" &nbsp;·&nbsp;
+                    \${data.vectorStoreStats.totalEmbeddings} embeddings · \${data.vectorStoreStats.uniqueDocuments} doc(s)
                 </div>
             \`;
 
             if (data.results.length === 0) {
-                html += '<p>No results found above the similarity threshold. Try lowering the threshold or using different keywords.</p>';
+                html += '<div class="empty">No results above threshold. Try lowering it or rephrasing your query.</div>';
             } else {
                 data.results.forEach((result, index) => {
+                    const pct = (result.similarity * 100).toFixed(1);
+                    const color = scoreColor(result.similarity);
                     html += \`
                         <div class="result-item">
                             <div class="result-header">
-                                <strong>Result \${index + 1}</strong>
-                                <span class="similarity-score">\${(result.similarity * 100).toFixed(1)}% match</span>
+                                <span class="result-rank">Result \${index + 1}</span>
+                                <span class="similarity-score \${scoreClass(result.similarity)}">\${pct}% match</span>
+                            </div>
+                            <div class="score-bar-wrap">
+                                <div class="score-bar-bg">
+                                    <div class="score-bar-fill" style="width:\${pct}%;background:\${color};"></div>
+                                </div>
+                                <span style="font-size:0.78rem;color:\${color};font-weight:600;min-width:36px;">\${pct}%</span>
                             </div>
                             <div class="result-content">\${result.preview}</div>
                             <div class="result-metadata">
                                 <span>📄 \${result.metadata.filename}</span>
-                                <span>📝 Chunk \${result.metadata.chunkIndex}</span>
-                                <span>📍 Chars \${result.metadata.startChar}-\${result.metadata.endChar}</span>
+                                <span>✂️ Chunk \${result.metadata.chunkIndex}</span>
+                                <span>📍 \${result.metadata.startChar}–\${result.metadata.endChar}</span>
                             </div>
                         </div>
                     \`;
@@ -1138,11 +1320,10 @@ router.get('/vector-search/test', (req, res) => {
         }
 
         function displayError(error, helpText = '') {
-            const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = \`
+            document.getElementById('results').innerHTML = \`
                 <div class="error">
                     <strong>Error:</strong> \${error}
-                    \${helpText ? \`<br><br><strong>Help:</strong> \${helpText}\` : ''}
+                    \${helpText ? \`<br><br>\${helpText}\` : ''}
                 </div>
             \`;
         }
@@ -1151,11 +1332,8 @@ router.get('/vector-search/test', (req, res) => {
             document.getElementById('searchQuery').value = query;
         }
 
-        // Allow Enter key to trigger search
         document.getElementById('searchQuery').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                performSearch();
-            }
+            if (e.key === 'Enter') performSearch();
         });
     </script>
 </body>
@@ -1355,206 +1533,244 @@ router.get('/chat/test', (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RAG Chat Test</title>
+    <title>RAG Chat${doc ? ' — ' + doc : ''}</title>
     <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 20px;
-            background: #f5f5f5;
-        }
-        .container {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            overflow: hidden;
-            height: 80vh;
+            background: #f0f2f5;
+            height: 100vh;
             display: flex;
             flex-direction: column;
         }
+        /* ── HEADER ── */
         .chat-header {
-            background: #007bff;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
             color: white;
-            padding: 20px;
-            text-align: center;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
         }
+        .header-left { display: flex; align-items: center; gap: 12px; }
+        .header-icon {
+            width: 38px; height: 38px;
+            background: rgba(255,255,255,0.12);
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.2rem;
+        }
+        .header-title { font-size: 0.95rem; font-weight: 700; }
+        .header-sub { font-size: 0.75rem; color: rgba(255,255,255,0.6); margin-top: 1px; }
+        .header-pills { display: flex; gap: 8px; }
+        .header-pill {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: rgba(255,255,255,0.75);
+            font-size: 0.72rem;
+            padding: 4px 10px;
+            border-radius: 20px;
+        }
+        .back-link {
+            color: rgba(255,255,255,0.6);
+            text-decoration: none;
+            font-size: 0.8rem;
+            display: flex; align-items: center; gap: 4px;
+        }
+        .back-link:hover { color: white; }
+
+        /* ── MESSAGES ── */
         .chat-messages {
             flex: 1;
-            padding: 20px;
+            padding: 24px;
             overflow-y: auto;
-            background: #f8f9fa;
+            background: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
         }
         .message {
-            margin-bottom: 20px;
-            padding: 15px;
-            border-radius: 8px;
-            max-width: 80%;
+            max-width: 78%;
+            border-radius: 14px;
+            padding: 14px 16px;
+            font-size: 0.92rem;
+            line-height: 1.6;
         }
         .message.user {
-            background: #007bff;
+            background: linear-gradient(135deg, #4f46e5, #7c3aed);
             color: white;
             margin-left: auto;
-            text-align: right;
+            border-bottom-right-radius: 4px;
         }
         .message.assistant {
             background: white;
-            border: 1px solid #dee2e6;
+            border: 1px solid #e5e7eb;
             margin-right: auto;
-        }
-        .message-content {
-            line-height: 1.6;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
         }
         .message-meta {
-            font-size: 12px;
-            opacity: 0.7;
-            margin-top: 8px;
-        }
-        .sources {
-            margin-top: 10px;
-            padding-top: 10px;
-            border-top: 1px solid #e9ecef;
-        }
-        .source-item {
-            background: #e7f3ff;
-            padding: 8px;
-            margin: 5px 0;
-            border-radius: 4px;
-            font-size: 12px;
-        }
-        .chat-input {
-            padding: 20px;
-            background: white;
-            border-top: 1px solid #dee2e6;
-        }
-        .input-group {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        .input-group input {
-            flex: 1;
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 4px;
-            font-size: 16px;
-        }
-        .input-group button {
-            padding: 12px 24px;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 16px;
-        }
-        .input-group button:hover {
-            background: #0056b3;
-        }
-        .input-group button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
-        .controls {
-            display: flex;
-            gap: 15px;
-            align-items: center;
-            font-size: 14px;
-        }
-        .controls label {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        .controls input[type="checkbox"] {
-            margin: 0;
-        }
-        .controls input[type="range"] {
-            width: 80px;
-        }
-        .loading {
-            text-align: center;
-            padding: 20px;
-            color: #666;
-        }
-        .error {
-            background: #f8d7da;
-            color: #721c24;
-            padding: 15px;
-            border-radius: 4px;
-            margin: 10px 0;
-        }
-        .example-questions {
-            margin: 10px 0;
-        }
-        .example-btn {
-            background: #e9ecef;
-            border: none;
-            padding: 5px 10px;
-            margin: 2px;
-            border-radius: 15px;
-            cursor: pointer;
-            font-size: 12px;
-        }
-        .example-btn:hover {
-            background: #dee2e6;
+            font-size: 0.75rem;
+            opacity: 0.6;
+            margin-top: 6px;
         }
         .message-content h1, .message-content h2, .message-content h3 {
-            margin: 10px 0 4px;
-            font-weight: 600;
-            line-height: 1.3;
+            margin: 10px 0 4px; font-weight: 600; line-height: 1.3;
         }
         .message-content h1 { font-size: 1.1em; }
         .message-content h2 { font-size: 1.05em; }
         .message-content h3 { font-size: 1em; color: #374151; }
-        .message-content ul, .message-content ol {
-            margin: 4px 0 4px 18px;
-            padding: 0;
-        }
+        .message-content ul, .message-content ol { margin: 4px 0 4px 18px; padding: 0; }
         .message-content li { margin: 2px 0; }
         .message-content p { margin: 4px 0; }
         .message-content strong { font-weight: 600; }
+
+        /* ── INPUT AREA ── */
+        .chat-input {
+            background: white;
+            border-top: 1px solid #e5e7eb;
+            padding: 14px 20px 16px;
+            flex-shrink: 0;
+        }
+        .example-questions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 12px;
+            align-items: center;
+        }
+        .example-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-right: 2px;
+        }
+        .example-btn {
+            background: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            color: #374151;
+            padding: 5px 12px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.78rem;
+            font-weight: 500;
+            transition: all 0.15s;
+        }
+        .example-btn:hover { background: #e5e7eb; border-color: #d1d5db; }
+        .input-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .input-row input {
+            flex: 1;
+            padding: 11px 16px;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 0.92rem;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .input-row input:focus { border-color: #6366f1; }
+        .send-btn {
+            padding: 11px 22px;
+            background: linear-gradient(135deg, #4f46e5, #7c3aed);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.92rem;
+            font-weight: 600;
+            transition: opacity 0.15s;
+        }
+        .send-btn:hover { opacity: 0.9; }
+        .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .controls {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            font-size: 0.8rem;
+            color: #6b7280;
+            flex-wrap: wrap;
+        }
+        .controls label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+        .controls input[type="range"] { width: 70px; accent-color: #4f46e5; }
+        .clear-btn {
+            padding: 5px 12px;
+            font-size: 0.78rem;
+            background: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            cursor: pointer;
+            color: #374151;
+            margin-left: auto;
+        }
+        .clear-btn:hover { background: #e5e7eb; }
+
+        /* ── MISC ── */
+        .loading { color: #6b7280; font-style: italic; }
+        .error {
+            background: #fef2f2; color: #991b1b;
+            border: 1px solid #fecaca;
+            padding: 12px 14px; border-radius: 8px;
+        }
+        .thinking-dots::after {
+            content: '...';
+            animation: dots 1s steps(3, end) infinite;
+        }
+        @keyframes dots {
+            0%,100% { content: '.'; }
+            33% { content: '..'; }
+            66% { content: '...'; }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="chat-header">
-            <h1>🤖 RAG Chat${doc ? ' — ' + doc : ''}</h1>
-            <p>Ask questions about your documents using AI</p>
-        </div>
-
-        <div class="chat-messages" id="chatMessages">
-            <div class="message assistant">
-                <div class="message-content">
-                    Hello! I'm ready to answer questions about your documents. What would you like to know?
-                </div>
-                <div class="message-meta">
-                    ${welcomeHint}
-                </div>
+    <div class="chat-header">
+        <div class="header-left">
+            <div class="header-icon">💬</div>
+            <div>
+                <div class="header-title">RAG Chat${doc ? ' — ' + doc : ''}</div>
+                <div class="header-sub">Hybrid BM25 + Semantic Retrieval · Inline Precision, MRR &amp; NDCG</div>
             </div>
         </div>
+        <div class="header-pills">
+            <span class="header-pill">Local Embeddings</span>
+            <span class="header-pill">Claude LLM</span>
+        </div>
+        <a href="/" class="back-link">← Dashboard</a>
+    </div>
 
-        <div class="chat-input">
-            <div class="example-questions">
-                <strong>Quick examples:</strong><br>
-                ${exampleBtnsHtml}
+    <div class="chat-messages" id="chatMessages">
+        <div class="message assistant">
+            <div class="message-content">
+                Hello! I'm ready to answer questions about <strong>${doc || 'your document'}</strong>. What would you like to know?
             </div>
+            <div class="message-meta">${welcomeHint}</div>
+        </div>
+    </div>
 
-            <div class="input-group">
-                <input type="text" id="messageInput" placeholder="Ask a question about your documents..." onkeypress="handleKeyPress(event)">
-                <button onclick="sendMessage()" id="sendBtn">Send</button>
-            </div>
-
-            <div class="controls">
-                <label>
-                    <input type="checkbox" id="includeHistory" checked> Include conversation history
-                </label>
-                <label>
-                    Temperature: <input type="range" id="temperature" min="0" max="1" step="0.1" value="0.7">
-                    <span id="tempValue">0.7</span>
-                </label>
-                <button onclick="clearChat()" style="padding: 5px 10px; font-size: 12px; background: #6c757d;">Clear Chat</button>
-            </div>
+    <div class="chat-input">
+        <div class="example-questions">
+            <span class="example-label">Try:</span>
+            ${exampleBtnsHtml}
+        </div>
+        <div class="input-row">
+            <input type="text" id="messageInput" placeholder="Ask a question about the document…" onkeypress="handleKeyPress(event)">
+            <button class="send-btn" onclick="sendMessage()" id="sendBtn">Send →</button>
+        </div>
+        <div class="controls">
+            <label>
+                <input type="checkbox" id="includeHistory" checked> Conversation history
+            </label>
+            <label>
+                Temp: <input type="range" id="temperature" min="0" max="1" step="0.1" value="0.7">
+                <span id="tempValue">0.7</span>
+            </label>
+            <button class="clear-btn" onclick="clearChat()">🗑 Clear chat</button>
         </div>
     </div>
 
@@ -1648,7 +1864,7 @@ router.get('/chat/test', (req, res) => {
             let messageHTML = \`<div class="message-content">\`;
 
             if (isLoading) {
-                messageHTML += \`<div class="loading">🔮 Thinking...</div>\`;
+                messageHTML += \`<div class="loading">🔮 Thinking<span class="thinking-dots"></span></div>\`;
             } else {
                 messageHTML += renderMarkdown(content);
             }
@@ -1798,7 +2014,7 @@ router.get('/chat/test', (req, res) => {
         function updateSendButton(enabled) {
             const sendBtn = document.getElementById('sendBtn');
             sendBtn.disabled = !enabled;
-            sendBtn.textContent = enabled ? 'Send' : 'Sending...';
+            sendBtn.textContent = enabled ? 'Send →' : 'Sending…';
         }
 
         function handleKeyPress(event) {
