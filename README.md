@@ -1,8 +1,8 @@
-# RAG ABRSM Exam 📄
+# RAG Eval Pipeline
 
-Retrieval-Augmented Generation chatbot for PDF syllabuses — ask questions, get accurate answers with source attribution and measurable retrieval quality.
+Retrieval-Augmented Generation pipeline with swappable chunking, embedding and LLM providers — load any PDF, ask questions in natural language, and measure retrieval quality with inline Precision, Recall, MRR and NDCG scores.
 
-🔗 [Live Demo](https://rag-abrsm-exam.vercel.app) · [Parent Project](https://www.powerparent.co.uk)
+🔗 [Live Demo](https://rag-eval-pipeline.vercel.app) · [Parent Project](https://www.powerparent.co.uk)
 
 ---
 

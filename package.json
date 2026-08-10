@@ -1,7 +1,7 @@
 {
-  "name": "rag-abrsm-exam",
+  "name": "rag-eval-pipeline",
   "version": "1.0.0",
-  "description": "RAG chatbot for ABRSM piano exam syllabus Q&A with retrieval evaluation",
+  "description": "RAG pipeline with swappable chunking/embedding/LLM providers and inline retrieval evaluation (Precision, Recall, MRR, NDCG)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
