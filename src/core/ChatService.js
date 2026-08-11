@@ -404,8 +404,11 @@ ${context}`
       contentLength: d.content?.length
     })));
 
-    // Use custom queries or generate default ones
-    const testQueries = customQueries || RetrievalEvaluator.createTestQueries(this.documents);
+    // Use custom queries, or the evaluator's own test suite if it has one, otherwise fall back to generic
+    const testQueries = customQueries ||
+      (typeof this.evaluator.constructor.createTestQueries === 'function'
+        ? this.evaluator.constructor.createTestQueries()
+        : RetrievalEvaluator.createTestQueries(this.documents));
 
     console.log(`📊 Running retrieval evaluation with ${testQueries.length} queries...`);
     console.log(`🔍 Debug: test queries:`, testQueries.map(q => ({
