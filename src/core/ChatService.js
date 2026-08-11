@@ -1,6 +1,7 @@
 const DocumentLoader = require('./DocumentLoader');
 const VectorStore = require('./VectorStore');
 const RetrievalEvaluator = require('./RetrievalEvaluator');
+const ElevenPlusEvaluator = require('./ElevenPlusEvaluator');
 const TruLensClient = require('./TruLensClient');
 const { createLLMProvider } = require('../providers/LLMProvider');
 
@@ -404,10 +405,11 @@ ${context}`
       contentLength: d.content?.length
     })));
 
-    // Use custom queries, or the evaluator's own test suite if it has one, otherwise fall back to generic
+    // Use custom queries, or doc-specific suite, or fall back to generic
+    const is11Plus = this.documents.some(d => d.metadata?.filename?.includes('11-plus'));
     const testQueries = customQueries ||
-      (typeof this.evaluator.constructor.createTestQueries === 'function'
-        ? this.evaluator.constructor.createTestQueries()
+      (is11Plus
+        ? ElevenPlusEvaluator.createTestQueries()
         : RetrievalEvaluator.createTestQueries(this.documents));
 
     console.log(`📊 Running retrieval evaluation with ${testQueries.length} queries...`);
