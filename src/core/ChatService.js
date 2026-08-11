@@ -392,7 +392,7 @@ ${context}`
    * @param {Array} customQueries - Optional custom test queries
    * @returns {Promise<Object>} Evaluation results
    */
-  async evaluateRetrieval(customQueries = null) {
+  async evaluateRetrieval(options = {}, customQueries = null) {
     if (!this.evaluator) {
       throw new Error('Evaluator not initialized. Call initialize() first.');
     }
@@ -417,7 +417,7 @@ ${context}`
       throw new Error('No test queries generated - check document structure');
     }
 
-    const evaluation = await this.evaluator.evaluateRetrieval(testQueries);
+    const evaluation = await this.evaluator.evaluateRetrieval(testQueries, options);
     this.evaluator.generateReport(evaluation);
 
     return evaluation;

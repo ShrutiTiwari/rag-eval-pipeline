@@ -176,7 +176,9 @@ router.get('/evaluate', async (req, res) => {
 
     console.log('📊 Running retrieval evaluation...');
 
-    const evaluation = await chatService.evaluateRetrieval();
+    const evalTopK = parseInt(req.query.topK) || 5;
+    const evalThreshold = parseFloat(req.query.threshold) || 0.1;
+    const evaluation = await chatService.evaluateRetrieval({ topK: evalTopK, threshold: evalThreshold });
 
     // Return HTML UI if requested from browser, JSON otherwise
     const acceptsHTML = req.headers.accept && req.headers.accept.includes('text/html');
@@ -384,7 +386,7 @@ router.get('/evaluate', async (req, res) => {
             <div class="header-icon">📊</div>
             <div>
                 <div class="header-title">Retrieval Evaluation${doc ? ' — ' + doc : ''}</div>
-                <div class="header-sub">Precision · Recall · F1 · MRR · NDCG</div>
+                <div class="header-sub">Precision · Recall · F1 · MRR · NDCG &nbsp;·&nbsp; topK=${evalTopK} &nbsp;·&nbsp; threshold=${evalThreshold}</div>
             </div>
         </div>
         <div class="header-actions">
@@ -427,6 +429,16 @@ router.get('/evaluate', async (req, res) => {
                 <div class="metric-label">Avg Speed</div>
                 <div class="metric-desc">Per query retrieval time</div>
             </div>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:24px;align-items:center;">
+            <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#6b7280;">Eval config:</span>
+            <span style="background:#ede9fe;color:#4f46e5;font-size:0.78rem;font-weight:600;padding:4px 12px;border-radius:20px;">topK = ${evalTopK}</span>
+            <span style="background:#ede9fe;color:#4f46e5;font-size:0.78rem;font-weight:600;padding:4px 12px;border-radius:20px;">threshold = ${evalThreshold}</span>
+            <span style="background:#ede9fe;color:#4f46e5;font-size:0.78rem;font-weight:600;padding:4px 12px;border-radius:20px;">${evaluation.detailed.length} queries</span>
+            <span style="background:#f3f4f6;color:#6b7280;font-size:0.78rem;padding:4px 12px;border-radius:20px;">Hybrid BM25 + cosine</span>
+            <a href="?doc=${encodeURIComponent(doc)}&topK=3&threshold=0.1" style="background:#f3f4f6;color:#374151;font-size:0.78rem;padding:4px 12px;border-radius:20px;text-decoration:none;border:1px solid #e5e7eb;">Try topK=3</a>
+            <a href="?doc=${encodeURIComponent(doc)}&topK=10&threshold=0.1" style="background:#f3f4f6;color:#374151;font-size:0.78rem;padding:4px 12px;border-radius:20px;text-decoration:none;border:1px solid #e5e7eb;">Try topK=10</a>
         </div>
 
         <div class="section-label">Performance by Difficulty</div>
